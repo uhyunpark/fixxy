@@ -81,12 +81,29 @@ lpng_add_plugin(
         src/dsp/BandResponse.h
 )
 
+lpng_add_plugin(
+    TARGET Comp
+    PRODUCT_NAME "LpngComp"
+    PLUGIN_CODE Lpcm
+    SOURCES
+        src/plugins/comp/PluginProcessor.cpp
+        src/dsp/CompressorNode.h
+)
+
 # Offline unit test: BandResponse.h's analytic curve vs. the actual SvfBandNode
 # kernel (impulse + DFT). Deliberately plain C++, no JUCE — kept out of the
 # plugin target so it builds fast and can't drag JUCE headers into scope.
 add_executable(BandResponseTest test/band_response_test.cpp)
 target_include_directories(BandResponseTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_compile_features(BandResponseTest PRIVATE cxx_std_20)
+
+# Offline unit test: CompressorNode vs. proto/compressor.py asserts (static curve,
+# C1 knee, ballistics, null). Plain C++, no JUCE — same rationale as above.
+add_executable(CompressorNodeTest test/compressor_node_test.cpp)
+target_include_directories(CompressorNodeTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_features(CompressorNodeTest PRIVATE cxx_std_20)
+set_source_files_properties(test/compressor_node_test.cpp PROPERTIES
+    COMPILE_OPTIONS "-Wall;-Wextra;-Wconversion;-Wshadow")
 
 # AnalyzerEngine test: pushes known signals through the analyzer and asserts the
 # dB output (peak bin/level, tilt slope). Needs juce::dsp::FFT, so it's a JUCE
