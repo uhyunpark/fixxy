@@ -1,5 +1,7 @@
 #include "PluginProcessor.h"
 
+#include "plugins/eq/ui/EqEditor.h"
+
 namespace {
 // Choice order MUST match SvfBandNode::Type.
 const juce::StringArray kTypeChoices{
@@ -102,6 +104,8 @@ SvfBandNode::BandParams MetaPluginProcessor::readBandParams(int i, int numSample
 }
 
 void MetaPluginProcessor::prepareToPlay(double sampleRate, int samplesPerBlock) {
+    publishedSampleRate.store(sampleRate, std::memory_order_relaxed);
+
     gainSmoother.reset(sampleRate, 0.02);
     gainSmoother.setCurrentAndTargetValue(
         juce::Decibels::decibelsToGain(gainParamDb->load()));
@@ -191,7 +195,7 @@ void MetaPluginProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::M
 }
 
 juce::AudioProcessorEditor* MetaPluginProcessor::createEditor() {
-    return new juce::GenericAudioProcessorEditor(*this);
+    return new EqEditor(*this);
 }
 
 void MetaPluginProcessor::getStateInformation(juce::MemoryBlock& destData) {

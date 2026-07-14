@@ -67,6 +67,18 @@ lpng_add_plugin(
     PLUGIN_CODE Lpeq
     SOURCES
         src/plugins/eq/PluginProcessor.cpp
+        src/plugins/eq/ui/CoordMap.h
+        src/plugins/eq/ui/BackgroundPanel.h
+        src/plugins/eq/ui/CurveView.h
+        src/plugins/eq/ui/EqEditor.h
         src/dsp/SvfBandNode.h
         src/dsp/MultibandEq.h
+        src/dsp/BandResponse.h
 )
+
+# Offline unit test: BandResponse.h's analytic curve vs. the actual SvfBandNode
+# kernel (impulse + DFT). Deliberately plain C++, no JUCE — kept out of the
+# plugin target so it builds fast and can't drag JUCE headers into scope.
+add_executable(BandResponseTest test/band_response_test.cpp)
+target_include_directories(BandResponseTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_features(BandResponseTest PRIVATE cxx_std_20)

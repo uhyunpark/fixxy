@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_audio_utils/juce_audio_utils.h>
@@ -38,6 +39,13 @@ public:
     void setStateInformation(const void* data, int sizeInBytes) override;
 
     juce::AudioProcessorValueTreeState apvts;
+
+    // Host sample rate, published by prepareToPlay for the editor's curve
+    // view. The drawn curve must be evaluated at the ACTUAL fs — the bilinear
+    // response near Nyquist depends on it (several dB of cramping for HF bands
+    // at 44.1k). Atomic so the message-thread reader needs no lock against the
+    // prepare/audio threads. 0.0 = not prepared yet (editor falls back to 48k).
+    std::atomic<double> publishedSampleRate{0.0};
 
     static constexpr int kNumBands = MultibandEq::kNumBands;
 

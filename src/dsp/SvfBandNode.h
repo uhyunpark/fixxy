@@ -4,6 +4,8 @@
 #include <cmath>
 #include <cstddef>
 
+#include "dsp/BandResponse.h"
+
 /**
     TPT-SVF parametric-EQ band node — Cytomic topology-preserving-transform form,
     generalized from the single peaking bell (old SvfPeakNode) to all 8 Pro-Q-class
@@ -42,9 +44,10 @@
 */
 class SvfBandNode {
 public:
-    enum class Type {
-        Bell = 0, LowShelf, HighShelf, Tilt, Notch, Bandpass, Lowpass, Highpass
-    };
+    // Single source of truth for the type enum lives in BandResponse.h so the
+    // UI's response evaluator and this kernel can never disagree on ordinal
+    // values (APVTS AudioParameterChoice indices key off this ordering too).
+    using Type = svfcoeffs::Type;
 
     /** Parameters as data. gainDb applies to bell/shelf/tilt only; slope (dB/oct)
         applies to low/high-pass only. */
@@ -147,72 +150,36 @@ private:
         double ic1eq = 0.0, ic2eq = 0.0;
     };
 
-    /** One SVF section's coefficients for a given type. Verified ground truth
-        from proto/multiband_eq.py svf_coeffs(). tan()/division live here. */
+    /** One SVF section's digital coefficients for a given type. The (g, k, m0,
+        m1, m2) analog-prototype recipe lives in BandResponse.h — the SINGLE
+        place shared with the UI's response evaluator — this just turns that
+        recipe into the TPT digital form. Ground truth: proto/multiband_eq.py
+        svf_coeffs(). */
     SectionCoeffs computeSection(double f0, double gainDb, double q, Type type) const {
-        const double A = std::pow(10.0, gainDb / 40.0);
-        double g = 0.0, k = 0.0, m0 = 0.0, m1 = 0.0, m2 = 0.0;
-        const double tanf = std::tan(kPi * f0 / fs);
-
-        switch (type) {
-        case Type::Bell:
-            g = tanf;            k = 1.0 / (q * A);
-            m0 = 1.0;            m1 = k * (A * A - 1.0);       m2 = 0.0;            break;
-        case Type::LowShelf:
-            g = tanf / std::sqrt(A); k = 1.0 / q;
-            m0 = 1.0;            m1 = k * (A - 1.0);           m2 = A * A - 1.0;    break;
-        case Type::HighShelf:
-            g = tanf * std::sqrt(A); k = 1.0 / q;
-            m0 = A * A;          m1 = k * (1.0 - A) * A;       m2 = 1.0 - A * A;    break;
-        case Type::Tilt:
-            g = tanf * std::sqrt(A); k = 1.0 / q;
-            m0 = A;              m1 = k * (1.0 - A);           m2 = 1.0 / A - A;    break;
-        case Type::Notch:
-            g = tanf;            k = 1.0 / q;
-            m0 = 1.0;            m1 = -k;                      m2 = 0.0;            break;
-        case Type::Bandpass:
-            g = tanf;            k = 1.0 / q;
-            m0 = 0.0;            m1 = k;                       m2 = 0.0;            break;
-        case Type::Lowpass:
-            g = tanf;            k = 1.0 / q;
-            m0 = 0.0;            m1 = 0.0;                     m2 = 1.0;            break;
-        case Type::Highpass:
-            g = tanf;            k = 1.0 / q;
-            m0 = 1.0;            m1 = -k;                      m2 = -1.0;           break;
-        }
+        const svfcoeffs::SectionRecipe r = svfcoeffs::computeSectionRecipe(type, f0, gainDb, q, fs);
 
         SectionCoeffs c;
-        c.a1 = 1.0 / (1.0 + g * (g + k));
-        c.a2 = g * c.a1;
-        c.a3 = g * c.a2;
-        c.m0 = m0; c.m1 = m1; c.m2 = m2;
+        c.a1 = 1.0 / (1.0 + r.g * (r.g + r.k));
+        c.a2 = r.g * c.a1;
+        c.a3 = r.g * c.a2;
+        c.m0 = r.m0; c.m1 = r.m1; c.m2 = r.m2;
         return c;
     }
 
     void updateCoeffs() {
         if (params.type == Type::Lowpass || params.type == Type::Highpass) {
-            int N = static_cast<int>(std::lround(params.slope / 6.0));
-            if (N < 1) N = 1;
-            if (N > 2 * kMaxSections) N = 2 * kMaxSections;
-            const int nPairs = N / 2;
-            numSections = nPairs;
+            // Butterworth pole-angle allocation shared with BandResponse.h so
+            // the UI curve's cascade matches this kernel's cascade exactly.
+            const svfcoeffs::CascadePlan plan =
+                svfcoeffs::planLowHighPassCascade(params.slope, params.q);
+            numSections = plan.numSections;
 
-            for (int i = 1; i <= nPairs; ++i) {
-                // SIN form of the Butterworth pole angle — the cos form some
-                // references use is wrong for odd N (verified vs scipy, see proto).
-                const double kButter = 2.0 * std::sin((2.0 * i - 1.0) * kPi / (2.0 * N));
-                double qSec = 1.0 / kButter;
-                if (i == nPairs) {
-                    // Q knob scales ONLY the last section. N=1 has no sections,
-                    // so N=1 ignores Q by construction.
-                    const double kLast = kButter * (0.7071 / params.q);
-                    qSec = 1.0 / kLast;
-                }
-                sectionCoeffs[static_cast<std::size_t>(i - 1)] =
-                    computeSection(params.f0, 0.0, qSec, params.type);
+            for (int i = 0; i < plan.numSections; ++i) {
+                sectionCoeffs[static_cast<std::size_t>(i)] = computeSection(
+                    params.f0, 0.0, plan.sectionQ[static_cast<std::size_t>(i)], params.type);
             }
 
-            if (N % 2 == 1) {
+            if (plan.hasOnePole) {
                 hasOnePole = true;
                 const double g = std::tan(kPi * params.f0 / fs);
                 onePoleG = g / (1.0 + g);
