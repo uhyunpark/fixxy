@@ -65,16 +65,22 @@ ZL Audio와 동일한 전략: 메타 플러그인으로 바로 가지 않는다.
 - **필터 계수 실시간 변조** 시 biquad 불안정 → ZDF/TPT(SVF) 구조. (Zavalishin / Wishnick)
 - **레이턴시 보고** 누락 시 트랙 정렬 깨짐 (룩어헤드/FFT 사용 시).
 - **상태 직렬화**에 생성된 DSP 정의까지 포함해야 프로젝트 재로드가 됨.
+- **Bilinear/TPT cramping**: 44.1kHz에서 10kHz 이상 벨/셸프가 아날로그 대비 1.4~3.1dB 왜곡
+  (측정: proto/cramping.py). TPT의 사다리꼴 적분기 자체가 bilinear 맵이라 (g,k,m)으로는 못 고침.
+  해법 = Vicanek matched 계수 (proto 검증: 잔차 0.2~0.45dB) + normal-form 실현.
+  **단 matched 계수 ≠ 변조 안전성** — 정적 정확도와 시변 안정성은 별개 축. 둘 다 필요.
+- **리서치가 준 공식도 틀린다**: Butterworth 폴 배분의 cos형은 짝수 차수에서만 우연히 맞음
+  (올바른 건 sin형). scipy 대조 assert가 잡았다 — 독립 수치 대조 없이 C++ 가지 말 것.
 
 ---
 
 ## 구현 순서
 
 1. Gain — 플러그인 골격, 파라미터 스무딩 (완료)
-2. Parametric EQ — biquad/SVF, 실시간 계수 갱신
-   - EQ 밴드 1개 (peaking, TPT-SVF) — 완료, Week 2, 커밋됨
-   - → 다음: 멀티밴드 EQ 제품화
-3. Compressor — 엔벨로프 팔로워, 니, 사이드체인, GR 미터 (다음 제품)
+2. Parametric EQ — **LpngEQ 기능 완성** (16밴드 × 8타입, 슬로프 6~96dB/oct,
+   커브 디스플레이 + pre/post 애널라이저 + Pro-Q식 핸들 인터랙션, pluginval 통과)
+   - 잔여: matched filter 커널 교체 (아래 함정 참고), 자연어 레이어 (결정 사항 참고)
+3. Compressor — 엔벨로프 팔로워, 니, 사이드체인, GR 미터 (다음 제품, docs/compressor-reference.md)
 4. Saturator + Oversampling — 앨리어싱 확인 및 제거
 5. Delay / Chorus — 딜레이 라인, 보간, 피드백, 모듈레이션
 6. Spectral Processor — STFT 파이프라인 (→ Soothe 계열)
@@ -228,5 +234,8 @@ pamplejuce의 CMakeLists를 **읽고 이해**하는 건 좋지만, fork하지 �
 2. ~~Gain 플러그인 → DAW 로드 → pluginval 통과~~ (완료)
 3. ~~Python DSP 프로토타이핑 환경 세팅 (`proto/`)~~ (완료)
 4. ~~EQ 밴드 1개(peaking) 구현, 멀티 타겟 빌드로 분리~~ (완료, Week 2)
-5. 멀티밴드 EQ로 확장 → 독립 제품(LpngEQ)으로 pluginval 통과
-6. Compressor 제품 시작
+5. ~~멀티밴드 EQ로 확장 → 독립 제품(LpngEQ)으로 pluginval 통과~~ (완료: DSP + UI 3단계)
+6. Compressor 제품 시작 (Giannoulis 2012 + docs/compressor-reference.md)
+7. Matched filter C++ 커널 교체 — normal-form 실현, dynamic EQ 직전이 적기
+   (proto 검증 완료: proto/matched_filters.py)
+8. 자연어 EQ 레이어 — 별도 설계 세션 필요

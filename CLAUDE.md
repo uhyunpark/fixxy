@@ -17,8 +17,10 @@ and a **node in the eventual graph library**. Design accordingly from day one:
 - Every node must be constructible and preparable **off the audio thread**
 
 **Current stage:** separate products per effect (ZL-style), sharing `src/dsp/` nodes.
-EQ band (TPT-SVF peaking) shipped as the `EQ` target (LpngEQ), passes pluginval.
-Next: multiband EQ product, then compressor. Meta-plugin integration comes after.
+LpngEQ is functionally complete: 16 bands x 8 SVF types, 6-96 dB/oct slopes,
+response curve + pre/post analyzer + Pro-Q-style handle interaction, passes pluginval.
+Next: compressor product (docs/compressor-reference.md). Later: matched-filter kernel
+swap (normal-form; proto verified), natural-language EQ layer, meta-plugin integration.
 
 ## Who I Am
 
@@ -30,14 +32,24 @@ git, or general software patterns — I already know them.
 
 ## How to Work With Me
 
-- **Prototype in Python first.** New DSP goes numpy → listen → verify → then port to C++.
-  Do not jump straight to C++ for an algorithm I haven't heard yet.
-- **One piece at a time.** Do not hand me a complete scaffold or a finished plugin.
-  I need to build the intuition, not review your code. Give me the next piece,
-  let me implement it, then move on.
-- **Structure before code.** Explain why the design is shaped this way, then write it.
-- **Audit the audio thread.** Any code inside `processBlock()` gets checked for
-  allocation, locks, I/O, and unbounded work *before* it gets written.
+- **Claude orchestrates; I instruct and review.** All implementation work goes through
+  subagents — always. Claude's job is decomposition, precise agent instructions,
+  verification gates, and synthesis. Do not implement in the main context except
+  trivial single-line conversation-level fixes.
+- **Model selection is explicit, per task**: opus for DSP math derivations and
+  audio-thread-critical code, sonnet for mechanical implementation against a fixed
+  spec, haiku for chores. Never let an agent silently inherit an expensive default.
+- **Prototype in Python first.** New DSP goes research -> numpy proto with
+  assert-based verification against an independent reference (scipy) -> then C++.
+  A derivation without a numeric cross-check does not enter C++ (a research-stage
+  formula error has already been caught this way — see PROJECT.md 함정).
+- **Explain the why behind DSP concepts** in reports and code comments — I'm learning
+  the domain. Skip explanations of CMake, C++ idioms, git, or general software
+  patterns — I already know them.
+- **Audit the audio thread.** Any code touching processBlock() gets an explicit
+  allocation/locks/IO/logging/bounded-work audit in the agent's report *before* merge.
+- **Gates before commit**: clean build with our warning flags, console tests pass,
+  pluginval strictness 5 SUCCESS. Commit only when I say so.
 - Be concise. No filler, no emoji.
 
 ## Non-Negotiables
