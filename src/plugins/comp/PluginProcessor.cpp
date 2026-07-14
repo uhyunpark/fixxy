@@ -1,5 +1,48 @@
 #include "PluginProcessor.h"
 
+#include <cmath>
+
+#include "dsp/CompressorSchema.h"
+
+#if JUCE_DEBUG
+namespace {
+// Runtime drift guard: walks the ACTUAL, live apvts and checks it against
+// dsp/CompressorSchema.h's compressorSchema() table — id-for-id, catching
+// any future edit to createParameterLayout() that isn't mirrored in the
+// schema (or vice versa). Debug-only; this is a constructor-time (off audio
+// thread) sanity check, not part of the shipped binary's hot path.
+// param_schema_test.cpp is the complementary offline half of this guard.
+void verifyCompressorSchemaAgainstApvts(juce::AudioProcessorValueTreeState& apvts) {
+    using paramschema::ParamType;
+
+    for (const auto& d : compressorschema::compressorSchema()) {
+        auto* param = apvts.getParameter(d.id);
+        jassert(param != nullptr);
+        if (param == nullptr)
+            continue;
+
+        if (d.type == ParamType::Bool) {
+            auto* b = dynamic_cast<juce::AudioParameterBool*>(param);
+            jassert(b != nullptr);
+            if (b != nullptr)
+                jassert(b->get() == (d.defaultVal > 0.5));
+        } else if (d.type == ParamType::Choice) {
+            jassertfalse;  // compressor has no choice params
+        } else {
+            auto* f = dynamic_cast<juce::AudioParameterFloat*>(param);
+            jassert(f != nullptr);
+            if (f != nullptr) {
+                const auto& r = f->getNormalisableRange();
+                jassert(std::abs((double) r.start - d.min) < 1e-6);
+                jassert(std::abs((double) r.end - d.max) < 1e-6);
+                jassert(std::abs((double) f->get() - d.defaultVal) < 1e-6);
+            }
+        }
+    }
+}
+}  // namespace
+#endif
+
 CompProcessor::CompProcessor()
     : AudioProcessor(BusesProperties()
                          .withInput("Input", juce::AudioChannelSet::stereo(), true)
@@ -18,6 +61,10 @@ CompProcessor::CompProcessor()
     progRelParam = apvts.getRawParameterValue("progRelease");
     scHpfParam = apvts.getRawParameterValue("scHpf");
     rmsParam = apvts.getRawParameterValue("rmsMode");
+
+#if JUCE_DEBUG
+    verifyCompressorSchemaAgainstApvts(apvts);
+#endif
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout CompProcessor::createParameterLayout() {

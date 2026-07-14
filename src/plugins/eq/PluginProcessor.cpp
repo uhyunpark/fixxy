@@ -1,5 +1,8 @@
 #include "PluginProcessor.h"
 
+#include <cmath>
+
+#include "dsp/EqSchema.h"
 #include "plugins/eq/ui/EqEditor.h"
 
 namespace {
@@ -21,6 +24,69 @@ constexpr std::array<float, 16> kDefaultFreqs{
 juce::String bandID(int i, const char* suffix) {
     return "band" + juce::String(i + 1) + suffix;
 }
+
+#if JUCE_DEBUG
+// Runtime drift guard: walks the ACTUAL, live apvts and checks it against
+// dsp/EqSchema.h's outputGainSchema()/bandSchema() tables — id-for-id (with
+// the "<N>" template mechanically expanded per band), catching any future
+// edit to createParameterLayout() that isn't mirrored in the schema (or vice
+// versa). Debug-only; constructor-time (off audio thread) check, not part of
+// the shipped binary's hot path. param_schema_test.cpp is the complementary
+// offline half of this guard.
+void verifyEqSchemaAgainstApvts(juce::AudioProcessorValueTreeState& apvts) {
+    using paramschema::ParamDescriptor;
+    using paramschema::ParamType;
+
+    auto checkOne = [](juce::RangedAudioParameter* param, const ParamDescriptor& d,
+                        double expectedDefault) {
+        jassert(param != nullptr);
+        if (param == nullptr)
+            return;
+
+        if (d.type == ParamType::Bool) {
+            auto* b = dynamic_cast<juce::AudioParameterBool*>(param);
+            jassert(b != nullptr);
+            if (b != nullptr)
+                jassert(b->get() == (expectedDefault > 0.5));
+        } else if (d.type == ParamType::Choice) {
+            auto* c = dynamic_cast<juce::AudioParameterChoice*>(param);
+            jassert(c != nullptr);
+            if (c != nullptr) {
+                jassert(c->choices.size() == static_cast<int>(d.choices.size()));
+                for (int i = 0; i < c->choices.size(); ++i)
+                    jassert(c->choices[i] == juce::String(d.choices[static_cast<std::size_t>(i)]));
+                jassert(c->getIndex() == static_cast<int>(std::lround(expectedDefault)));
+            }
+        } else {
+            auto* f = dynamic_cast<juce::AudioParameterFloat*>(param);
+            jassert(f != nullptr);
+            if (f != nullptr) {
+                const auto& r = f->getNormalisableRange();
+                jassert(std::abs((double) r.start - d.min) < 1e-6);
+                jassert(std::abs((double) r.end - d.max) < 1e-6);
+                jassert(std::abs((double) f->get() - expectedDefault) < 1e-4);
+            }
+        }
+    };
+
+    checkOne(apvts.getParameter("gain"), eqschema::outputGainSchema(), 0.0);
+
+    const auto band = eqschema::bandSchema();
+    for (int i = 0; i < MultibandEq::kNumBands; ++i) {
+        for (const auto& d : band) {
+            // "band<N>Freq" -> the actual APVTS id via the SAME bandID() the
+            // real layout was built with (not a re-derivation).
+            const juce::String suffix = juce::String(d.id).fromLastOccurrenceOf("N>", false, false);
+            auto* param = apvts.getParameter(bandID(i, suffix.toRawUTF8()));
+            const double expectedDefault =
+                (!d.defaultsByIndex.empty())
+                    ? d.defaultsByIndex[static_cast<std::size_t>(i)]
+                    : d.defaultVal;
+            checkOne(param, d, expectedDefault);
+        }
+    }
+}
+#endif
 }  // namespace
 
 MetaPluginProcessor::MetaPluginProcessor()
@@ -37,6 +103,10 @@ MetaPluginProcessor::MetaPluginProcessor()
         bandGain[static_cast<std::size_t>(i)] = apvts.getRawParameterValue(bandID(i, "Gain"));
         bandSlope[static_cast<std::size_t>(i)] = apvts.getRawParameterValue(bandID(i, "Slope"));
     }
+
+#if JUCE_DEBUG
+    verifyEqSchemaAgainstApvts(apvts);
+#endif
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout MetaPluginProcessor::createParameterLayout() {

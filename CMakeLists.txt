@@ -108,6 +108,16 @@ set_source_files_properties(test/compressor_node_test.cpp PROPERTIES
 # AnalyzerEngine test: pushes known signals through the analyzer and asserts the
 # dB output (peak bin/level, tilt slope). Needs juce::dsp::FFT, so it's a JUCE
 # console app linking juce_dsp only — deliberately kept out of the plugin target.
+# Offline unit test: the machine-readable parameter schema (dsp/ParamSchema.h,
+# dsp/CompressorSchema.h, dsp/EqSchema.h) vs. an independently transcribed
+# copy of the actual APVTS layouts. Plain C++, no JUCE — same rationale as
+# above. Also prints the full schema JSON for both plugins.
+add_executable(ParamSchemaTest test/param_schema_test.cpp)
+target_include_directories(ParamSchemaTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_features(ParamSchemaTest PRIVATE cxx_std_20)
+set_source_files_properties(test/param_schema_test.cpp PROPERTIES
+    COMPILE_OPTIONS "-Wall;-Wextra;-Wconversion;-Wshadow")
+
 juce_add_console_app(AnalyzerEngineTest PRODUCT_NAME "AnalyzerEngineTest")
 target_sources(AnalyzerEngineTest PRIVATE test/analyzer_engine_test.cpp)
 target_include_directories(AnalyzerEngineTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
