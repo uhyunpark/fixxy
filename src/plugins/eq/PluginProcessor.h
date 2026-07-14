@@ -1,9 +1,11 @@
 #pragma once
 
+#include <array>
+
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_audio_utils/juce_audio_utils.h>
 
-#include "dsp/SvfPeakNode.h"
+#include "dsp/MultibandEq.h"
 
 class MetaPluginProcessor : public juce::AudioProcessor {
 public:
@@ -37,25 +39,39 @@ public:
 
     juce::AudioProcessorValueTreeState apvts;
 
+    static constexpr int kNumBands = MultibandEq::kNumBands;
+
 private:
+    // Resolve the current BandParams for band i from its smoothed/atomic values.
+    SvfBandNode::BandParams readBandParams(int i, int numSamples);
+
+    // --- Output gain (unchanged: the old "gain" param is now output trim) ---
     std::atomic<float>* gainParamDb = nullptr;
     juce::LinearSmoothedValue<float> gainSmoother;
 
-    // --- Peaking EQ band (TPT-SVF node) ---
-    // Smoothing lives at the plugin boundary (mirrors gainSmoother) so the node
-    // stays a pure JUCE-free DSP kernel. We smooth the three *raw* params, not
-    // the derived coefficients: the mapping param->coeff (tan, 10^, division)
-    // is nonlinear, so a linear ramp on the params keeps the perceptually
-    // meaningful quantities (Hz, dB) moving smoothly, and the SVF is stable
-    // under per-block coefficient updates by construction. Coeffs are then
-    // recomputed once per block from the smoothed values — never per sample.
-    std::atomic<float>* eqFreqParam = nullptr;
-    std::atomic<float>* eqQParam = nullptr;
-    std::atomic<float>* eqGainParam = nullptr;
-    juce::LinearSmoothedValue<double> eqFreqSmoother;
-    juce::LinearSmoothedValue<double> eqQSmoother;
-    juce::LinearSmoothedValue<double> eqGainSmoother;
-    SvfPeakNode eqBand;
+    // --- 16 EQ bands ---
+    // Smoothing lives at the plugin boundary (mirrors gainSmoother) so the DSP
+    // nodes stay pure JUCE-free kernels. We smooth the three CONTINUOUS params
+    // (f0/Q/gain) per band — the param->coeff map (tan, 10^, division) is
+    // nonlinear, so a linear ramp on Hz/dB keeps the perceptual quantities
+    // moving smoothly and the SVF is stable under per-block coeff updates.
+    // type/slope/enabled are discrete: enabled routes through MultibandEq's 10 ms
+    // crossfade; type/slope changes on an ENABLED band apply immediately and may
+    // click (accepted for now per spec — the common path, enabling a band with a
+    // chosen type, goes through the fade because enabling resets + fades in).
+    std::array<std::atomic<float>*, kNumBands> bandEnabled{};
+    std::array<std::atomic<float>*, kNumBands> bandType{};
+    std::array<std::atomic<float>*, kNumBands> bandFreq{};
+    std::array<std::atomic<float>*, kNumBands> bandQ{};
+    std::array<std::atomic<float>*, kNumBands> bandGain{};
+    std::array<std::atomic<float>*, kNumBands> bandSlope{};
+
+    std::array<juce::LinearSmoothedValue<double>, kNumBands> freqSmoother{};
+    std::array<juce::LinearSmoothedValue<double>, kNumBands> qSmoother{};
+    std::array<juce::LinearSmoothedValue<double>, kNumBands> gainSmoother2{};
+    std::array<bool, kNumBands> lastEnabled{};
+
+    MultibandEq eq;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MetaPluginProcessor)
 };

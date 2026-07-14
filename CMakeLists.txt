@@ -67,5 +67,6 @@ lpng_add_plugin(
     PLUGIN_CODE Lpeq
     SOURCES
         src/plugins/eq/PluginProcessor.cpp
-        src/dsp/SvfPeakNode.h
+        src/dsp/SvfBandNode.h
+        src/dsp/MultibandEq.h
 )
