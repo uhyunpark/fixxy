@@ -23,6 +23,7 @@ juce_add_plugin(MetaPlugin
 
 target_sources(MetaPlugin PRIVATE
     src/PluginProcessor.cpp
+    src/dsp/SvfPeakNode.h
 )
 
 # Warnings on our sources only — JUCE module sources compile inside this same
