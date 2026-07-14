@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(MetaPlugin VERSION 0.1.0)
+project(LpngSound VERSION 0.1.0)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -7,41 +7,65 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 add_subdirectory(external/JUCE SYSTEM)
 
-juce_add_plugin(MetaPlugin
-    COMPANY_NAME "uhyun"
-    PLUGIN_MANUFACTURER_CODE Uhyn
-    PLUGIN_CODE Mtpl
-    FORMATS VST3 AU Standalone
-    PRODUCT_NAME "MetaPlugin"
-    IS_SYNTH FALSE
-    NEEDS_MIDI_INPUT FALSE
-    NEEDS_MIDI_OUTPUT FALSE
-    COPY_PLUGIN_AFTER_BUILD TRUE
-    MICROPHONE_PERMISSION_ENABLED TRUE
-    MICROPHONE_PERMISSION_TEXT "MetaPlugin needs audio input to process it."
-)
+# Each classic effect ships as its own plugin product (see PROJECT.md — "제품
+# 구조"). They share the src/dsp/ node library. This function wraps the
+# per-target boilerplate that is identical across products; anything
+# product-specific (name, code, sources) stays an explicit argument.
+function(lpng_add_plugin)
+    set(oneValueArgs TARGET PRODUCT_NAME PLUGIN_CODE)
+    set(multiValueArgs SOURCES)
+    cmake_parse_arguments(ARG "" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
-target_sources(MetaPlugin PRIVATE
-    src/PluginProcessor.cpp
-    src/dsp/SvfPeakNode.h
-)
+    juce_add_plugin(${ARG_TARGET}
+        COMPANY_NAME "uhyun"
+        PLUGIN_MANUFACTURER_CODE Uhyn
+        PLUGIN_CODE ${ARG_PLUGIN_CODE}
+        FORMATS VST3 AU Standalone
+        PRODUCT_NAME "${ARG_PRODUCT_NAME}"
+        IS_SYNTH FALSE
+        NEEDS_MIDI_INPUT FALSE
+        NEEDS_MIDI_OUTPUT FALSE
+        COPY_PLUGIN_AFTER_BUILD TRUE
+        MICROPHONE_PERMISSION_ENABLED TRUE
+        MICROPHONE_PERMISSION_TEXT "${ARG_PRODUCT_NAME} needs audio input to process it."
+    )
 
-# Warnings on our sources only — JUCE module sources compile inside this same
-# target and are not clean under -Wconversion.
-set_source_files_properties(src/PluginProcessor.cpp PROPERTIES
-    COMPILE_OPTIONS "-Wall;-Wextra;-Wconversion;-Wshadow"
-)
+    target_sources(${ARG_TARGET} PRIVATE ${ARG_SOURCES})
 
-target_compile_definitions(MetaPlugin PRIVATE
-    JUCE_WEB_BROWSER=0
-    JUCE_USE_CURL=0
-    JUCE_VST3_CAN_REPLACE_VST2=0
-)
+    # src/ is the include root so plugin code says #include "dsp/SvfPeakNode.h"
+    # regardless of which product directory it lives in.
+    target_include_directories(${ARG_TARGET} PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
-target_link_libraries(MetaPlugin
-    PRIVATE
-        juce::juce_audio_utils
-    PUBLIC
-        juce::juce_recommended_config_flags
-        juce::juce_recommended_lto_flags
+    # Warnings on our sources only — JUCE module sources compile inside this
+    # same target and are not clean under -Wconversion.
+    foreach(src ${ARG_SOURCES})
+        if(src MATCHES "\\.cpp$")
+            set_source_files_properties(${src} PROPERTIES
+                COMPILE_OPTIONS "-Wall;-Wextra;-Wconversion;-Wshadow"
+            )
+        endif()
+    endforeach()
+
+    target_compile_definitions(${ARG_TARGET} PRIVATE
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_VST3_CAN_REPLACE_VST2=0
+    )
+
+    target_link_libraries(${ARG_TARGET}
+        PRIVATE
+            juce::juce_audio_utils
+        PUBLIC
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_lto_flags
+    )
+endfunction()
+
+lpng_add_plugin(
+    TARGET EQ
+    PRODUCT_NAME "LpngEQ"
+    PLUGIN_CODE Lpeq
+    SOURCES
+        src/plugins/eq/PluginProcessor.cpp
+        src/dsp/SvfPeakNode.h
 )

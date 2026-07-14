@@ -16,8 +16,9 @@ and a **node in the eventual graph library**. Design accordingly from day one:
 - Parameters as data, not hardcoded members — the LLM will emit them as JSON
 - Every node must be constructible and preparable **off the audio thread**
 
-**Current stage:** Week 1 — write a minimal CMakeLists with JUCE as a submodule, get a gain
-plugin building and loading in a DAW, pass pluginval. Build system is ours from the start.
+**Current stage:** separate products per effect (ZL-style), sharing `src/dsp/` nodes.
+EQ band (TPT-SVF peaking) shipped as the `EQ` target (LpngEQ), passes pluginval.
+Next: multiband EQ product, then compressor. Meta-plugin integration comes after.
 
 ## Who I Am
 

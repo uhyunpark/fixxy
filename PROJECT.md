@@ -38,6 +38,22 @@ LLM은 실시간으로 소리를 만들지 않는다. 실시간 DSP 엔진을 **
 
 ---
 
+## 제품 구조 — 효과기별 개별 플러그인 먼저
+
+ZL Audio와 동일한 전략: 메타 플러그인으로 바로 가지 않는다.
+
+- 효과기(EQ, Compressor, Limiter, ...)마다 **독립 플러그인 타겟**을 만든다.
+  `src/dsp/`의 노드 라이브러리는 모든 타겟이 공유.
+- 각 제품은 **개별적으로** pluginval / DAW 로드 검증을 통과해야 한다.
+  통합은 그 다음 — 노드가 메타 플러그인 그래프에서 실제로 조합 가능한지는
+  그때 확인한다.
+- UI는 지금 전부 **제네릭/자동 생성** (`GenericAudioProcessorEditor` 등).
+  제품별 UI 폴리싱은 하지 않는다 — 지금 목표는 DSP 노드 검증이지 제품 완성도가 아니다.
+- CMake: 타겟마다 반복되는 설정(`juce_add_plugin` 옵션, 링크, 워닝 플래그)은
+  헬퍼 함수로 묶는다. 타겟 추가 = 소스 목록 + 제품명 + PLUGIN_CODE만 새로 씀.
+
+---
+
 ## 함정 (모르면 시간 날림)
 
 - **파라미터 스무딩** 안 하면 지퍼 노이즈.
@@ -50,9 +66,11 @@ LLM은 실시간으로 소리를 만들지 않는다. 실시간 DSP 엔진을 **
 
 ## 구현 순서
 
-1. Gain — 플러그인 골격, 파라미터 스무딩
-2. Parametric EQ — biquad, 실시간 계수 갱신
-3. Compressor — 엔벨로프 팔로워, 니, 사이드체인, GR 미터
+1. Gain — 플러그인 골격, 파라미터 스무딩 (완료)
+2. Parametric EQ — biquad/SVF, 실시간 계수 갱신
+   - EQ 밴드 1개 (peaking, TPT-SVF) — 완료, Week 2, 커밋됨
+   - → 다음: 멀티밴드 EQ 제품화
+3. Compressor — 엔벨로프 팔로워, 니, 사이드체인, GR 미터 (다음 제품)
 4. Saturator + Oversampling — 앨리어싱 확인 및 제거
 5. Delay / Chorus — 딜레이 라인, 보간, 피드백, 모듈레이션
 6. Spectral Processor — STFT 파이프라인 (→ Soothe 계열)
@@ -62,6 +80,9 @@ LLM은 실시간으로 소리를 만들지 않는다. 실시간 DSP 엔진을 **
 10. Faust JIT 통합
 
 각 단계: 논문 → Python 프로토타입(소리 확인) → C++ 구현 → ZL 대응 리포와 대조
+
+**제품 단위는 단계와 별개다.** 각 효과기는 독립 플러그인 제품으로 먼저 출시하고
+검증한다 (아래 "제품 구조" 참고). 메타 플러그인 통합은 그 다음이다.
 
 ---
 
@@ -181,10 +202,13 @@ zsliu98의 오픈소스 JUCE 플러그인. 구현 순서와 거의 1:1로 대응
 남의 템플릿을 fork하지 않는다. 최소 구성으로 시작하고, 필요할 때만 늘린다.
 
 ```
-meta-plugin/
-├── CMakeLists.txt      # JUCE 서브모듈 + 플러그인 타겟 1개
+lpngsound/
+├── CMakeLists.txt      # JUCE 서브모듈 + 플러그인 타겟들 (lpng_add_plugin 헬퍼)
 ├── external/JUCE/      # submodule
 ├── src/
+│   ├── dsp/             # 공유 노드 라이브러리 (SvfPeakNode 등, header-only)
+│   └── plugins/
+│       └── eq/          # EQ 제품 (PluginProcessor.h/.cpp)
 ├── proto/              # Python 프로토타입
 └── CLAUDE.md, PROJECT.md
 ```
@@ -196,6 +220,9 @@ pamplejuce의 CMakeLists를 **읽고 이해**하는 건 좋지만, fork하지 �
 
 ## 다음 액션
 
-1. JUCE 서브모듈 + 최소 CMakeLists 직접 작성 → 빌드 통과
-2. Gain 플러그인 → DAW 로드 → pluginval 통과
-3. Python DSP 프로토타이핑 환경 세팅 (`proto/`)
+1. ~~JUCE 서브모듈 + 최소 CMakeLists 직접 작성 → 빌드 통과~~ (완료)
+2. ~~Gain 플러그인 → DAW 로드 → pluginval 통과~~ (완료)
+3. ~~Python DSP 프로토타이핑 환경 세팅 (`proto/`)~~ (완료)
+4. ~~EQ 밴드 1개(peaking) 구현, 멀티 타겟 빌드로 분리~~ (완료, Week 2)
+5. 멀티밴드 EQ로 확장 → 독립 제품(LpngEQ)으로 pluginval 통과
+6. Compressor 제품 시작
