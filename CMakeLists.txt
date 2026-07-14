@@ -55,6 +55,7 @@ function(lpng_add_plugin)
     target_link_libraries(${ARG_TARGET}
         PRIVATE
             juce::juce_audio_utils
+            juce::juce_dsp
         PUBLIC
             juce::juce_recommended_config_flags
             juce::juce_recommended_lto_flags
@@ -67,9 +68,12 @@ lpng_add_plugin(
     PLUGIN_CODE Lpeq
     SOURCES
         src/plugins/eq/PluginProcessor.cpp
+        src/plugins/eq/SpectrumFifo.h
         src/plugins/eq/ui/CoordMap.h
         src/plugins/eq/ui/BackgroundPanel.h
         src/plugins/eq/ui/CurveView.h
+        src/plugins/eq/ui/AnalyzerEngine.h
+        src/plugins/eq/ui/AnalyzerView.h
         src/plugins/eq/ui/EqEditor.h
         src/dsp/SvfBandNode.h
         src/dsp/MultibandEq.h
@@ -82,3 +86,20 @@ lpng_add_plugin(
 add_executable(BandResponseTest test/band_response_test.cpp)
 target_include_directories(BandResponseTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_compile_features(BandResponseTest PRIVATE cxx_std_20)
+
+# AnalyzerEngine test: pushes known signals through the analyzer and asserts the
+# dB output (peak bin/level, tilt slope). Needs juce::dsp::FFT, so it's a JUCE
+# console app linking juce_dsp only — deliberately kept out of the plugin target.
+juce_add_console_app(AnalyzerEngineTest PRODUCT_NAME "AnalyzerEngineTest")
+target_sources(AnalyzerEngineTest PRIVATE test/analyzer_engine_test.cpp)
+target_include_directories(AnalyzerEngineTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_definitions(AnalyzerEngineTest PRIVATE
+    JUCE_STANDALONE_APPLICATION=1
+    JUCE_USE_CURL=0
+    JUCE_WEB_BROWSER=0
+)
+target_link_libraries(AnalyzerEngineTest
+    PRIVATE
+        juce::juce_dsp
+        juce::juce_recommended_config_flags
+)

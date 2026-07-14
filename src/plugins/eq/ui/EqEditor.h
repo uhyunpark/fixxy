@@ -6,6 +6,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "AnalyzerView.h"
 #include "BackgroundPanel.h"
 #include "CoordMap.h"
 #include "CurveView.h"
@@ -24,8 +25,10 @@ class EqEditor : public juce::AudioProcessorEditor {
 public:
     explicit EqEditor(MetaPluginProcessor& p)
         : AudioProcessorEditor(p), proc(p), background(map),
+          analyzer(p.preFifo, p.postFifo, map, p.publishedSampleRate),
           curve(p.apvts, map, p.publishedSampleRate) {
         addAndMakeVisible(background);
+        addAndMakeVisible(analyzer);  // behind the curve, above the grid
         addAndMakeVisible(curve);
 
         addAndMakeVisible(bandSelect);
@@ -71,6 +74,7 @@ public:
         auto r = getLocalBounds();
         auto controls = r.removeFromBottom(96);
         background.setBounds(r);
+        analyzer.setBounds(r);
         curve.setBounds(r);
 
         controls.reduce(6, 6);
@@ -131,6 +135,7 @@ private:
 
     CoordMap map;
     BackgroundPanel background;
+    AnalyzerView analyzer;
     CurveView curve;
 
     juce::ComboBox bandSelect;

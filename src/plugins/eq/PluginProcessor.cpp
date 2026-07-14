@@ -112,6 +112,14 @@ void MetaPluginProcessor::prepareToPlay(double sampleRate, int samplesPerBlock) 
 
     eq.prepare(sampleRate, samplesPerBlock, getTotalNumOutputChannels());
 
+    // Analyzer taps. Capacity = max(2 * FFT, 0.1 s) at the HIGHEST supported
+    // rate, so it satisfies the design's max(2*4096, ~0.1*fs) for the actual fs
+    // and never reallocates on a later rate change while the editor reads it.
+    const int fifoCap = juce::jmax(2 * kAnalyzerFftSize,
+                                   static_cast<int>(std::ceil(0.1 * kAnalyzerMaxFs)));
+    preFifo.prepare(fifoCap, getTotalNumOutputChannels());
+    postFifo.prepare(fifoCap, getTotalNumOutputChannels());
+
     for (int i = 0; i < kNumBands; ++i) {
         const auto idx = static_cast<std::size_t>(i);
         // 20 ms ramps; with ~2.9 ms blocks the per-block coeff step is small and
@@ -161,6 +169,10 @@ void MetaPluginProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::M
 
     const int numSamples = buffer.getNumSamples();
 
+    // 0) Pre-EQ tap. Capture the INPUT before eq.process() overwrites the buffer
+    //    in place. Lock-free, bounded, drop-on-overflow (see SpectrumFifo::write).
+    preFifo.write(buffer.getArrayOfReadPointers(), buffer.getNumChannels(), numSamples);
+
     // 1) Detect enable/disable edges -> trigger the 10 ms crossfade. Cheap:
     //    an atomic load + bool compare per band, no coeff work here.
     for (int i = 0; i < kNumBands; ++i) {
@@ -192,6 +204,9 @@ void MetaPluginProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::M
     // 4) Output trim.
     gainSmoother.setTargetValue(juce::Decibels::decibelsToGain(gainParamDb->load()));
     gainSmoother.applyGain(buffer, numSamples);
+
+    // 5) Post-EQ tap: the processed output after the trim.
+    postFifo.write(buffer.getArrayOfReadPointers(), buffer.getNumChannels(), numSamples);
 }
 
 juce::AudioProcessorEditor* MetaPluginProcessor::createEditor() {

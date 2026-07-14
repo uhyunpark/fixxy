@@ -7,6 +7,7 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 
 #include "dsp/MultibandEq.h"
+#include "plugins/eq/SpectrumFifo.h"
 
 class MetaPluginProcessor : public juce::AudioProcessor {
 public:
@@ -49,7 +50,17 @@ public:
 
     static constexpr int kNumBands = MultibandEq::kNumBands;
 
+    // Pre-EQ and post-EQ analyzer taps. Written on the audio thread in
+    // processBlock (lock-free, drop-on-overflow), drained by the editor's
+    // AnalyzerView on the message thread. Public so the editor can read them;
+    // capacity is fixed in prepareToPlay (see kAnalyzerMaxFs) so the storage the
+    // reader touches is never reallocated on a session sample-rate change.
+    SpectrumFifo preFifo;
+    SpectrumFifo postFifo;
+
 private:
+    static constexpr int kAnalyzerFftSize = 4096;
+    static constexpr double kAnalyzerMaxFs = 192000.0;
     // Resolve the current BandParams for band i from its smoothed/atomic values.
     SvfBandNode::BandParams readBandParams(int i, int numSamples);
 
