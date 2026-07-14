@@ -87,11 +87,23 @@ public:
     void paint(juce::Graphics& g) override {
         for (int i = 0; i < kNumBands; ++i) {
             if (!enabledCache[static_cast<std::size_t>(i)]) continue;
-            g.setColour(bandColour(i).withAlpha(0.4f));
-            g.strokePath(bandPaths[static_cast<std::size_t>(i)], juce::PathStrokeType(1.2f));
+            const bool selected = (i == selectedBand);
+            g.setColour(bandColour(i).withAlpha(selected ? 0.9f : 0.4f));
+            g.strokePath(bandPaths[static_cast<std::size_t>(i)],
+                         juce::PathStrokeType(selected ? 2.4f : 1.2f));
         }
         g.setColour(juce::Colours::white);
         g.strokePath(sumPath, juce::PathStrokeType(2.2f));
+    }
+
+    /** Stage 3 hook: DraggerLayer (and the band-select combo, via EqEditor)
+        drive this so the curve emphasizes whichever band is currently
+        selected. -1 = no emphasis. Message-thread only, like everything else
+        here except the dirty-flag listener callback. */
+    void setSelectedBand(int band) {
+        if (selectedBand == band) return;
+        selectedBand = band;
+        repaint();
     }
 
 private:
@@ -218,6 +230,7 @@ private:
     std::array<bool, kNumBands> enabledCache{};
     std::array<juce::Path, kNumBands> bandPaths{};
     juce::Path sumPath;
+    int selectedBand = -1;
 
     std::array<std::atomic<bool>, kNumBands> dirty{};
 };

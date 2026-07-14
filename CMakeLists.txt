@@ -74,6 +74,7 @@ lpng_add_plugin(
         src/plugins/eq/ui/CurveView.h
         src/plugins/eq/ui/AnalyzerEngine.h
         src/plugins/eq/ui/AnalyzerView.h
+        src/plugins/eq/ui/DraggerLayer.h
         src/plugins/eq/ui/EqEditor.h
         src/dsp/SvfBandNode.h
         src/dsp/MultibandEq.h

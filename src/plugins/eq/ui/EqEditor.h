@@ -10,31 +10,52 @@
 #include "BackgroundPanel.h"
 #include "CoordMap.h"
 #include "CurveView.h"
+#include "DraggerLayer.h"
 #include "plugins/eq/PluginProcessor.h"
 
 /**
-    Stage 1 custom editor: response-curve view (BackgroundPanel + CurveView,
-    sharing one CoordMap) with a functional band-control strip underneath.
+    Stage 1-3 custom editor: response-curve view (BackgroundPanel + CurveView
+    + AnalyzerView, sharing one CoordMap) topped by DraggerLayer for
+    click/drag/wheel/keyboard band editing, with a functional band-control
+    strip underneath.
 
-    The strip is a minimal stand-in for Stage 3's full custom controls: a
-    band-select combo plus the selected band's 6 parameters as plain JUCE
-    widgets, wired with standard APVTS attachments. No drag-on-curve
-    interaction yet (Stage 2/3).
+    The strip's band-select combo and DraggerLayer's click-to-select are kept
+    in sync (see rebuildAttachments()/onSelectionChanged below): selecting a
+    band either way updates both the strip's attachments and the emphasized
+    curve/handle.
 */
 class EqEditor : public juce::AudioProcessorEditor {
 public:
     explicit EqEditor(MetaPluginProcessor& p)
         : AudioProcessorEditor(p), proc(p), background(map),
           analyzer(p.preFifo, p.postFifo, map, p.publishedSampleRate),
-          curve(p.apvts, map, p.publishedSampleRate) {
+          curve(p.apvts, map, p.publishedSampleRate),
+          dragger(p.apvts, map, curve, p.publishedSampleRate) {
         addAndMakeVisible(background);
         addAndMakeVisible(analyzer);  // behind the curve, above the grid
         addAndMakeVisible(curve);
+        addAndMakeVisible(dragger);  // topmost: intercepts mouse for drag interaction
 
         addAndMakeVisible(bandSelect);
         for (int i = 0; i < MetaPluginProcessor::kNumBands; ++i)
             bandSelect.addItem("Band " + juce::String(i + 1), i + 1);
-        bandSelect.onChange = [this] { rebuildAttachments(); };
+        bandSelect.onChange = [this] {
+            rebuildAttachments();
+            const int band = bandSelect.getSelectedId() - 1;
+            dragger.setSelectedBandExternal(band);
+        };
+
+        // DraggerLayer selection (click/double-click on the curve) drives the
+        // strip the other way. Only fires on an actual selection change (see
+        // DraggerLayer::selectBand), and never on setSelectedBandExternal, so
+        // this can't loop back into bandSelect.onChange above. -1 (deselect,
+        // e.g. clicking empty area) intentionally leaves the strip on the
+        // last band -- the strip has no "none" state to fall back to.
+        dragger.onSelectionChanged = [this](int band) {
+            if (band < 0) return;
+            bandSelect.setSelectedId(band + 1, juce::dontSendNotification);
+            rebuildAttachments();
+        };
 
         addAndMakeVisible(enabledLabel);
         addAndMakeVisible(enabledButton);
@@ -64,6 +85,7 @@ public:
 
         bandSelect.setSelectedId(1, juce::dontSendNotification);
         rebuildAttachments();
+        dragger.setSelectedBandExternal(0);
 
         setResizable(true, true);
         setResizeLimits(600, 420, 2400, 1600);
@@ -76,6 +98,7 @@ public:
         background.setBounds(r);
         analyzer.setBounds(r);
         curve.setBounds(r);
+        dragger.setBounds(r);
 
         controls.reduce(6, 6);
         auto bandArea = controls.removeFromLeft(90);
@@ -137,6 +160,7 @@ private:
     BackgroundPanel background;
     AnalyzerView analyzer;
     CurveView curve;
+    DraggerLayer dragger;
 
     juce::ComboBox bandSelect;
 
