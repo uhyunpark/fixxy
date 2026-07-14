@@ -1,0 +1,15 @@
+# Build
+build/
+cmake-build-*/
+
+# Tooling caches
+.cache/
+compile_commands.json
+
+# macOS
+.DS_Store
+
+# Python (proto/)
+__pycache__/
+.venv/
+proto/out/
