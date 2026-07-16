@@ -67,10 +67,24 @@ ZL Audio와 동일한 전략: 메타 플러그인으로 바로 가지 않는다.
 - **상태 직렬화**에 생성된 DSP 정의까지 포함해야 프로젝트 재로드가 됨.
 - **Bilinear/TPT cramping**: 44.1kHz에서 10kHz 이상 벨/셸프가 아날로그 대비 1.4~3.1dB 왜곡
   (측정: proto/cramping.py). TPT의 사다리꼴 적분기 자체가 bilinear 맵이라 (g,k,m)으로는 못 고침.
-  해법 = Vicanek matched 계수 (proto 검증: 잔차 0.2~0.45dB) + normal-form 실현.
+  해법 = matched 계수 + normal-form 실현. 삼자 대조(proto/matched_kernel.py) 결과
+  Ivantsov 채택(σ=2.028, 주파수 보정 필수) — 8타입 전부 커버, 셸프/notch/tilt는 Vicanek에
+  없음. 단 고슬로프 LP/HP 캐스케이드는 matched의 Nyquist 잔차가 누적(96dB/oct에서 4.35dB)되어
+  TPT 유지.
   **단 matched 계수 ≠ 변조 안전성** — 정적 정확도와 시변 안정성은 별개 축. 둘 다 필요.
 - **리서치가 준 공식도 틀린다**: Butterworth 폴 배분의 cos형은 짝수 차수에서만 우연히 맞음
   (올바른 건 sin형). scipy 대조 assert가 잡았다 — 독립 수치 대조 없이 C++ 가지 말 것.
+- **이음새 버그** (2026-07 애널라이저 사례): 컴포넌트 단위 테스트가 전부 통과해도 컴포넌트
+  사이 경계는 아무 테스트도 안 건널 수 있다. 실제 사례: 스펙트럼 애널라이저가 Logic에서
+  완전히 빈 화면 — AnalyzerEngine(dB 출력 검증됨)과 CoordMap(EQ 게인용 ±30dB 창) 각자는
+  정상인데, 빈당 스펙트럼 레벨(−40~−90dB)을 EQ 게인 축에 그대로 매핑해 전부 바닥으로 clamp.
+  스펙트럼 레벨 축과 EQ 게인 축은 다른 물리량 — 상용 EQ가 전부 분리 스케일을 쓰는 이유.
+  UI 기능은 콘솔 테스트 + pluginval만으로는 부족하고 standalone/호스트에서 실제 신호로
+  시각 확인해야 한다.
+- **레퍼런스 요약 문서도 틀린다**: docs/eq_reference_guide.md에서 오류 2건이 수치 검증에서
+  발각 (Ivantsov φ 함수 분자 오타, sigma 최적 범위가 논문과 정반대). 리서치→문서→구현 어느
+  단계든 전사 오류가 생기니, 원 논문과의 수치 대조는 문서 요약이 아니라 프로토가 한다.
+  (기존 "리서치가 준 공식도 틀린다" 항목과 연결.)
 
 ---
 
@@ -238,4 +252,5 @@ pamplejuce의 CMakeLists를 **읽고 이해**하는 건 좋지만, fork하지 �
 6. Compressor 제품 시작 (Giannoulis 2012 + docs/compressor-reference.md)
 7. Matched filter C++ 커널 교체 — normal-form 실현, dynamic EQ 직전이 적기
    (proto 검증 완료: proto/matched_filters.py)
+   (프로토 완료: proto/matched_kernel.py, Ivantsov GO — C++ 포트 진행 중)
 8. 자연어 EQ 레이어 — 별도 설계 세션 필요

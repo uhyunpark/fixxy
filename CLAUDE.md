@@ -49,7 +49,8 @@ git, or general software patterns — I already know them.
 - **Audit the audio thread.** Any code touching processBlock() gets an explicit
   allocation/locks/IO/logging/bounded-work audit in the agent's report *before* merge.
 - **Gates before commit**: clean build with our warning flags, console tests pass,
-  pluginval strictness 5 SUCCESS. Commit only when I say so.
+  pluginval strictness 5 SUCCESS; UI-facing changes additionally get a visual check
+  with real signal in the standalone app or a DAW. Commit only when I say so.
 - Be concise. No filler, no emoji.
 
 ## Non-Negotiables
