@@ -30,10 +30,12 @@
     and pushBlock() allocate nothing (they run on the message thread, but the
     node-library discipline still applies).
 
-    NOTE on the 2/N window scaling (per spec): it is NOT compensated for the Hann
-    coherent gain (0.5), so an on-bin full-scale sine reads its peak ~6 dB below
-    0 dBFS. This is a fixed reference for the display; the two-tone test asserts
-    against that exact value.
+    NOTE on the window scaling: pre-scaled by 4/N, which is 2/N (the usual FFT
+    magnitude normalization) doubled to cancel the Hann window's 0.5 coherent
+    gain (its samples average to half the window peak). Without this an on-bin
+    full-scale sine reads ~6 dB below 0 dBFS, which is not what "0 dB" should
+    mean on a level meter. With it, an on-bin full-scale sine reads ~0 dBFS;
+    the two-tone test asserts against that.
 
     NOTE on the tilt: +4.5 dB/oct is the FabFilter-style aesthetic slope. An FFT
     analyzer's per-bin power for pink noise falls -3 dB/oct, so with +4.5 tilt
@@ -60,9 +62,11 @@ public:
         constexpr double kPi = 3.14159265358979323846;
         window.resize(static_cast<std::size_t>(kFftSize));
         for (int n = 0; n < kFftSize; ++n) {
-            // Periodic (DFT-even) Hann, pre-scaled by 2/N.
+            // Periodic (DFT-even) Hann, pre-scaled by 4/N: the usual 2/N FFT
+            // magnitude normalization, doubled to cancel the Hann coherent
+            // gain (0.5) so a full-scale on-bin sine reads ~0 dBFS.
             const double w = 0.5 - 0.5 * std::cos(2.0 * kPi * n / kFftSize);
-            window[static_cast<std::size_t>(n)] = static_cast<float>(w * (2.0 / kFftSize));
+            window[static_cast<std::size_t>(n)] = static_cast<float>(w * (4.0 / kFftSize));
         }
         for (auto& b : circ)
             b.assign(static_cast<std::size_t>(kFftSize), 0.0f);

@@ -4,7 +4,8 @@
 // juce_dsp only (CMakeLists.txt) — kept out of the plugin target.
 //
 //   1) Two-tone: on-bin sines must peak at the correct bins, at the level the
-//      2/N Hann scaling implies (uncompensated coherent gain -> -6 dB), ±1 dB.
+//      4/N Hann scaling implies (coherent gain compensated -> reads its own
+//      amplitude in dB), ±1 dB.
 //   2) Tilt: flat-power white noise must read a +kTiltDbPerOct dB/oct slope.
 //   3) Pink: -3 dB/oct pink noise reads (tilt - 3) dB/oct -> NOT flat at 4.5;
 //      flat only if the tilt were 3 dB/oct. Documents the design discrepancy.
@@ -68,8 +69,9 @@ void twoTone() {
         return best;
     };
     const int pA = argmaxNear(kA), pB = argmaxNear(kB);
-    // 2/N + Hann coherent gain (0.5, uncompensated): peak = 20*log10(amp/2).
-    const double expected = 20.0 * std::log10(amp / 2.0);
+    // 4/N (2/N doubled to cancel the Hann coherent gain of 0.5): an on-bin
+    // full-scale sine reads its own amplitude in dB, peak = 20*log10(amp).
+    const double expected = 20.0 * std::log10(amp);
 
     std::printf("  peakA bin=%d (want %d) %.2f dB | peakB bin=%d (want %d) %.2f dB | expected %.2f dB\n",
                 pA, kA, raw[static_cast<std::size_t>(pA)], pB, kB, raw[static_cast<std::size_t>(pB)], expected);
@@ -141,12 +143,77 @@ void tiltPink() {
     check(std::abs(s - expected) < 0.9, "pink reads (tilt - 3) dB/oct");
 }
 
+// ANALYZER-SCALE regression (docs/issues.md): AnalyzerView used to map bin dB
+// through CoordMap's +-30 dB EQ-gain window, so every real-signal bin (which
+// sits around -40..-90 dB) clamped to the bottom edge and the analyzer never
+// drew anything. This replicates the two candidate y-mappings' floor logic
+// inline (no juce::Component needed) and checks what fraction of the
+// 20 Hz-20 kHz band lands above the bottom edge under each one.
+void analyzerDisplayMapping() {
+    std::printf("Analyzer display mapping (broadband noise, 20 Hz-20 kHz points above floor):\n");
+
+    // Old, buggy mapping: AnalyzerView fed binDb() straight into CoordMap's
+    // EQ-gain window (CoordMap.h:16-17).
+    constexpr float kEqMinDb = -30.0f;
+    // New, fixed mapping: analyzer-specific dB window (AnalyzerView.h), separate
+    // from CoordMap's gain axis.
+    constexpr float kAnalyzerMinDb = -90.0f;
+
+    for (double fs : {48000.0, 96000.0}) {
+        AnalyzerEngine eng;
+        eng.setSampleRate(fs);
+
+        // Broadband (white) noise -- reuses averageSpectrum()'s generator inline
+        // for a single realization, which is enough to exercise the mapping.
+        // -20 dBFS-ish broadband material (typical program level, not a
+        // full-scale test tone) -- this is what actually exposes the bug: loud
+        // full-scale noise lands well inside even the old +-30dB EQ window.
+        constexpr float kMaterialScale = 0.1f;
+        std::mt19937 rng(2468u);
+        std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+        std::vector<float> buf(static_cast<std::size_t>(kN));
+        for (int n = 0; n < kN; ++n)
+            buf[static_cast<std::size_t>(n)] = kMaterialScale * dist(rng);
+        const float* ch[1] = {buf.data()};
+        eng.pushBlock(ch, 1, kN);
+        eng.computeFrame();
+        const auto& db = eng.binDb();
+
+        const double binHz = fs / kN;
+        int total = 0, aboveEq = 0, aboveAnalyzer = 0;
+        for (int k = 0; k < AnalyzerEngine::kNumBins; ++k) {
+            const double f = static_cast<double>(k) * binHz;
+            if (f < 20.0 || f > 20000.0)
+                continue;
+            ++total;
+            const float v = db[static_cast<std::size_t>(k)];
+            if (v > kEqMinDb)
+                ++aboveEq;
+            if (v > kAnalyzerMinDb)
+                ++aboveAnalyzer;
+        }
+        const double fracEq = 100.0 * aboveEq / total;
+        const double fracAnalyzer = 100.0 * aboveAnalyzer / total;
+        std::printf(
+            "  fs=%.0f: old EQ-window(+-30dB) above floor = %d/%d (%.1f%%) | "
+            "analyzer-window(0/-90dB) above floor = %d/%d (%.1f%%)\n",
+            fs, aboveEq, total, fracEq, aboveAnalyzer, total, fracAnalyzer);
+        // Pre-fix probe (recorded in the fix report): under the buggy CoordMap
+        // +-30dB EQ-gain window, both rates land 0/N above floor -- every bin
+        // clamps to the bottom edge, reproducing the reported blank analyzer.
+        // The actual regression assertion checks the fixed analyzer-specific
+        // window (AnalyzerView::kAnalyzerMinDb/kAnalyzerMaxDb).
+        check(fracAnalyzer > 50.0, "fs case: majority of points land above the analyzer-window floor");
+    }
+}
+
 }  // namespace
 
 int main() {
     twoTone();
     tiltWhite();
     tiltPink();
+    analyzerDisplayMapping();
     std::printf("\n%s\n", failures == 0 ? "ALL ANALYZER TESTS PASS" : "SOME ANALYZER TESTS FAILED");
     return failures == 0 ? 0 : 1;
 }

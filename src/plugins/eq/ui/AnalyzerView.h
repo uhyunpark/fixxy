@@ -71,6 +71,30 @@ private:
     static inline const juce::Colour kPostColour{0xff8fd0ff};
     static constexpr int kScratchCap = 1 << 15;  // >= any FIFO capacity
 
+    // Analyzer-specific dB window, deliberately separate from CoordMap's
+    // +-30 dB window (CoordMap::kMinDb/kMaxDb). The curve display's dB axis is
+    // EQ *gain* (how much a band boosts/cuts); the analyzer's dB axis is
+    // spectrum *level* (dBFS-ish signal energy per bin) -- a different physical
+    // quantity with a different useful range. Program material sits around
+    // -40..-90 dB per bin, nowhere near a +-30 dB gain window, so feeding one
+    // through the other clamps every point to the bottom edge and the analyzer
+    // never draws (this was the ANALYZER-SCALE bug -- see PROJECT.md 함정
+    // "이음새 버그", docs/issues.md). Every commercial EQ analyzer uses two
+    // separate scales for exactly this reason. Only the y-axis differs; the x
+    // (frequency) axis still comes from the shared CoordMap so the analyzer and
+    // the response curve always line up on frequency.
+    static constexpr float kAnalyzerMaxDb = 0.0f;
+    static constexpr float kAnalyzerMinDb = -90.0f;
+
+    /** dB (spectrum level) -> y, using the analyzer's own window but the
+        shared CoordMap's bounds rectangle (so it still sizes with the curve
+        display). */
+    float dbToAnalyzerY(float db) const {
+        const float t = (juce::jlimit(kAnalyzerMinDb, kAnalyzerMaxDb, db) - kAnalyzerMinDb) /
+                        (kAnalyzerMaxDb - kAnalyzerMinDb);
+        return map.bounds.getBottom() - t * map.bounds.getHeight();
+    }
+
     double readHostFs() const {
         const double fs = hostSampleRate.load(std::memory_order_relaxed);
         return fs > 0.0 ? fs : 48000.0;
@@ -106,7 +130,7 @@ private:
         fill.clear();
         const auto& db = engine.binDb();
         const double fs = engine.getSampleRate() > 0.0 ? engine.getSampleRate() : 48000.0;
-        const float bottom = map.dbToY(CoordMap::kMinDb);
+        const float bottom = dbToAnalyzerY(kAnalyzerMinDb);
 
         float firstX = 0.0f, lastX = 0.0f;
         for (int p = 0; p < kNumPoints; ++p) {
@@ -124,7 +148,7 @@ private:
                       db[static_cast<std::size_t>(k0 + 1)] * t;
             }
             const float x = map.freqToX(f);
-            const float y = map.dbToY(dbv);
+            const float y = dbToAnalyzerY(dbv);
             if (p == 0) {
                 firstX = x;
                 line.startNewSubPath(x, y);
