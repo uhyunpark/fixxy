@@ -11,7 +11,7 @@
 
 #include "CoordMap.h"
 #include "CurveView.h"
-#include "dsp/BandResponse.h"
+#include "dsp/MatchedCoeffs.h"
 
 /**
     Stage 3: the interactive layer. Topmost component in the curve stack,
@@ -336,9 +336,9 @@ private:
             yDb = s.gainDb;
         } else {
             const double slope = kSlopeValues[static_cast<std::size_t>(s.slopeIdx)];
-            yDb = static_cast<float>(svfcoeffs::magnitudeDb(static_cast<svfcoeffs::Type>(s.type),
-                                                              s.freqHz, s.qVal, s.gainDb, slope, fs,
-                                                              s.freqHz));
+            yDb = static_cast<float>(matched::bandMagnitudeDb(static_cast<svfcoeffs::Type>(s.type),
+                                                                s.freqHz, s.qVal, s.gainDb, slope, fs,
+                                                                s.freqHz));
         }
         return {x, map.dbToY(yDb)};
     }

@@ -5,8 +5,30 @@
 #include <cstddef>
 
 #include "dsp/BandResponse.h"
+#include "dsp/MatchedCoeffs.h"
 
 /**
+    Hybrid parametric-EQ band node.
+
+    TWO kernels live here, chosen per type at coefficient-update time:
+
+      - Bell / LowShelf / HighShelf / Tilt / Notch / Bandpass use the Ivantsov
+        MATCHED design (proto/matched_kernel.py) realized in the NORMAL FORM
+        (MatchedCoeffs.h). This decramps the response near Nyquist — the digital
+        magnitude tracks the analog prototype to ~0.5 dB in the musical core
+        instead of the bilinear transform's several-dB squeeze — while the
+        normal form's well-conditioned 2-state realization stays click-free under
+        per-block coefficient modulation.
+
+      - Lowpass / Highpass (all slopes) KEEP the TPT-SVF Butterworth cascade
+        below unchanged: a matched per-section LP cascade accumulates up to
+        4.35 dB of Nyquist residual at 96 dB/oct (proto test 7 carve-out), so the
+        BLT cascade — exact at Nyquist by construction — stays the better choice
+        for steep cutoffs.
+
+    The rest of this file is the original TPT-SVF machinery, used only by the
+    Low/High-pass path now.
+
     TPT-SVF parametric-EQ band node — Cytomic topology-preserving-transform form,
     generalized from the single peaking bell (old SvfPeakNode) to all 8 Pro-Q-class
     band types plus variable-slope Butterworth low/high-pass.
@@ -76,13 +98,15 @@ public:
         reset();
     }
 
-    /** Zero every integrator state on every channel. */
+    /** Zero every integrator state on every channel (both kernels). */
     void reset() {
         for (auto& perCh : sectionState)
             for (auto& s : perCh)
                 s = SectionState{};
         for (auto& s : onePoleState)
             s = 0.0;
+        for (auto& s : nfState)
+            s = NfState{};
     }
 
     /** Set parameters and recompute all section coefficients. One tan() per
@@ -101,6 +125,12 @@ public:
         allocation, bounded by kMaxSections. */
     void process(float* const* channels, int numChannels, int numSamples) {
         const int nCh = numChannels < kMaxChannels ? numChannels : kMaxChannels;
+
+        if (usesMatched) {
+            processMatched(channels, nCh, numSamples);
+            return;
+        }
+
         const int nSec = numSections;
         const bool onePole = hasOnePole;
         const double g1 = onePoleG;
@@ -166,10 +196,57 @@ private:
         return c;
     }
 
+    /** One matched-type sample of the normal-form realization, in place across
+        nCh channels. Pure arithmetic — 3 mul + 2 add per sample per channel for
+        the state update plus 3 mul + 2 add for the output; no tan(), no
+        division, no branch inside the loop, no allocation. Coefficients (nf) are
+        already resolved by updateCoeffs(); modulating them per block does not
+        corrupt the well-conditioned state (that is the whole point of the normal
+        form — see MatchedCoeffs.h). */
+    void processMatched(float* const* channels, int nCh, int numSamples) {
+        const double p1 = nf.p1, p2 = nf.p2, c1 = nf.c1, c2 = nf.c2, d = nf.d;
+
+        if (nf.isComplex) {
+            const double re = p1, im = p2;
+            for (int ch = 0; ch < nCh; ++ch) {
+                float* x = channels[ch];
+                NfState& s = nfState[static_cast<std::size_t>(ch)];
+                double s1 = s.s1, s2 = s.s2;
+                for (int i = 0; i < numSamples; ++i) {
+                    const double xi = static_cast<double>(x[i]);
+                    const double y = c1 * s1 + c2 * s2 + d * xi;
+                    const double s1n = re * s1 + im * s2 + xi;
+                    const double s2n = -im * s1 + re * s2;
+                    s1 = s1n;
+                    s2 = s2n;
+                    x[i] = static_cast<float>(y);
+                }
+                s.s1 = s1;
+                s.s2 = s2;
+            }
+        } else {
+            const double l1 = p1, l2 = p2;
+            for (int ch = 0; ch < nCh; ++ch) {
+                float* x = channels[ch];
+                NfState& s = nfState[static_cast<std::size_t>(ch)];
+                double s1 = s.s1, s2 = s.s2;
+                for (int i = 0; i < numSamples; ++i) {
+                    const double xi = static_cast<double>(x[i]);
+                    s1 = l1 * s1 + xi;
+                    s2 = l2 * s2 + xi;
+                    x[i] = static_cast<float>(d * xi + c1 * s1 + c2 * s2);
+                }
+                s.s1 = s1;
+                s.s2 = s2;
+            }
+        }
+    }
+
     void updateCoeffs() {
         if (params.type == Type::Lowpass || params.type == Type::Highpass) {
             // Butterworth pole-angle allocation shared with BandResponse.h so
             // the UI curve's cascade matches this kernel's cascade exactly.
+            usesMatched = false;
             const svfcoeffs::CascadePlan plan =
                 svfcoeffs::planLowHighPassCascade(params.slope, params.q);
             numSections = plan.numSections;
@@ -188,8 +265,14 @@ private:
                 hasOnePole = false;
             }
         } else {
-            numSections = 1;
-            sectionCoeffs[0] = computeSection(params.f0, params.gainDb, params.q, params.type);
+            // Matched types: Ivantsov digital biquad -> normal-form realization.
+            // Same coefficient function the UI curve draws from (MatchedCoeffs.h),
+            // so drawn and heard cannot drift apart.
+            usesMatched = true;
+            const matched::Biquad bq =
+                matched::computeBiquad(params.type, fs, params.f0, params.q, params.gainDb);
+            nf = matched::normalForm(bq);
+            numSections = 0;
             hasOnePole = false;
         }
     }
@@ -207,4 +290,13 @@ private:
 
     std::array<std::array<SectionState, kMaxSections>, kMaxChannels> sectionState{};
     std::array<double, kMaxChannels> onePoleState{};
+
+    // Matched-type (Ivantsov + normal-form) path. One realization shared across
+    // channels (same filter); one 2-state vector PER channel, pre-allocated.
+    struct NfState {
+        double s1 = 0.0, s2 = 0.0;
+    };
+    bool usesMatched = false;
+    matched::NormalForm nf{};
+    std::array<NfState, kMaxChannels> nfState{};
 };

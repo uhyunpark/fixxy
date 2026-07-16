@@ -79,6 +79,7 @@ lpng_add_plugin(
         src/dsp/SvfBandNode.h
         src/dsp/MultibandEq.h
         src/dsp/BandResponse.h
+        src/dsp/MatchedCoeffs.h
 )
 
 lpng_add_plugin(
@@ -96,6 +97,17 @@ lpng_add_plugin(
 add_executable(BandResponseTest test/band_response_test.cpp)
 target_include_directories(BandResponseTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_compile_features(BandResponseTest PRIVATE cxx_std_20)
+
+# Offline unit test: Ivantsov matched kernel (MatchedCoeffs.h + SvfBandNode's
+# normal-form path) vs. proto-generated fixtures (test/matched_kernel_fixtures.h
+# from proto/dump_matched_fixtures.py). Coefficients to 1e-12, magnitudes to
+# 1e-9 dB, realization reconstruction, passthrough bit-exactness, modulation
+# sanity. Plain C++, no JUCE — same rationale as above.
+add_executable(MatchedKernelTest test/matched_kernel_test.cpp)
+target_include_directories(MatchedKernelTest PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/test)
+target_compile_features(MatchedKernelTest PRIVATE cxx_std_20)
+set_source_files_properties(test/matched_kernel_test.cpp PROPERTIES
+    COMPILE_OPTIONS "-Wall;-Wextra;-Wconversion;-Wshadow")
 
 # Offline unit test: CompressorNode vs. proto/compressor.py asserts (static curve,
 # C1 knee, ballistics, null). Plain C++, no JUCE — same rationale as above.

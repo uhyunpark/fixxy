@@ -17,6 +17,7 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BUILD_DIR="$PROJECT_DIR/build"
 
 BAND_RESPONSE_TEST="$BUILD_DIR/BandResponseTest"
+MATCHED_KERNEL_TEST="$BUILD_DIR/MatchedKernelTest"
 ANALYZER_ENGINE_TEST="$BUILD_DIR/AnalyzerEngineTest_artefacts/AnalyzerEngineTest"
 COMPRESSOR_NODE_TEST="$BUILD_DIR/CompressorNodeTest"
 
@@ -25,6 +26,13 @@ fail=0
 if [ -x "$BAND_RESPONSE_TEST" ]; then
   if ! "$BAND_RESPONSE_TEST" >/dev/null 2>&1; then
     echo "pre-commit hook: BandResponseTest FAILED" >&2
+    fail=1
+  fi
+fi
+
+if [ -x "$MATCHED_KERNEL_TEST" ]; then
+  if ! "$MATCHED_KERNEL_TEST" >/dev/null 2>&1; then
+    echo "pre-commit hook: MatchedKernelTest FAILED" >&2
     fail=1
   fi
 fi

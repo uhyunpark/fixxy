@@ -8,7 +8,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "CoordMap.h"
-#include "dsp/BandResponse.h"
+#include "dsp/MatchedCoeffs.h"
 #include "dsp/MultibandEq.h"
 #include "dsp/SvfBandNode.h"
 
@@ -181,7 +181,7 @@ private:
 
         enabledCache[idx] = enabled;
         for (int p = 0; p < kNumPoints; ++p) {
-            dbCache[idx][static_cast<std::size_t>(p)] = static_cast<float>(svfcoeffs::magnitudeDb(
+            dbCache[idx][static_cast<std::size_t>(p)] = static_cast<float>(matched::bandMagnitudeDb(
                 type, f0, q, gainDb, slope, displayFs, freqPoints[static_cast<std::size_t>(p)]));
         }
         buildPathForBand(i);

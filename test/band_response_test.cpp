@@ -1,8 +1,14 @@
-// Offline cross-check: BandResponse.h's analytic magnitudeDb() must agree
-// with the ACTUAL SvfBandNode kernel (impulse -> direct DFT at the frequency
-// of interest, same harness approach as proto/multiband_eq.py) to < 0.1 dB
-// everywhere meaningful. This is the guarantee that the UI curve and the
-// audio-thread kernel cannot drift apart.
+// Offline cross-check: the UI curve evaluator (matched::bandMagnitudeDb) must
+// agree with the ACTUAL SvfBandNode kernel (impulse -> direct DFT at the
+// frequency of interest, same harness approach as proto/multiband_eq.py) to
+// < 0.1 dB everywhere meaningful. This is the guarantee that the UI curve and
+// the audio-thread kernel cannot drift apart.
+//
+// After the Ivantsov port both paths derive from the SAME digital coefficients
+// for matched types (bell/shelf/tilt/notch/bandpass): the curve is |H(e^jw)| of
+// the biquad, the kernel realizes that biquad in normal form — so they now agree
+// to DFT-truncation precision, far tighter than the 0.1 dB gate. Low/High-pass
+// keep the TPT-SVF analog-cascade curve/kernel pair unchanged.
 //
 // Plain C++ console target — deliberately kept out of the plugin build
 // (CMakeLists.txt: separate add_executable, no JUCE link).
@@ -14,6 +20,7 @@
 #include <vector>
 
 #include "dsp/BandResponse.h"
+#include "dsp/MatchedCoeffs.h"
 #include "dsp/SvfBandNode.h"
 
 namespace {
@@ -121,7 +128,7 @@ int main() {
             // and it's not meaningful for the UI curve anyway.
             if (kernelDb < -100.0) continue;
 
-            const double analyticDb = svfcoeffs::magnitudeDb(
+            const double analyticDb = matched::bandMagnitudeDb(
                 cfg.params.type, cfg.params.f0, cfg.params.q, cfg.params.gainDb,
                 cfg.params.slope, kFs, f);
 
