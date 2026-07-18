@@ -102,6 +102,11 @@ MetaPluginProcessor::MetaPluginProcessor()
         bandQ[static_cast<std::size_t>(i)] = apvts.getRawParameterValue(bandID(i, "Q"));
         bandGain[static_cast<std::size_t>(i)] = apvts.getRawParameterValue(bandID(i, "Gain"));
         bandSlope[static_cast<std::size_t>(i)] = apvts.getRawParameterValue(bandID(i, "Slope"));
+        bandDynOn[static_cast<std::size_t>(i)] = apvts.getRawParameterValue(bandID(i, "DynOn"));
+        bandDynRange[static_cast<std::size_t>(i)] = apvts.getRawParameterValue(bandID(i, "DynRange"));
+        bandDynThresh[static_cast<std::size_t>(i)] = apvts.getRawParameterValue(bandID(i, "DynThresh"));
+        bandDynAttack[static_cast<std::size_t>(i)] = apvts.getRawParameterValue(bandID(i, "DynAttack"));
+        bandDynRelease[static_cast<std::size_t>(i)] = apvts.getRawParameterValue(bandID(i, "DynRelease"));
     }
 
 #if JUCE_DEBUG
@@ -150,6 +155,33 @@ juce::AudioProcessorValueTreeState::ParameterLayout MetaPluginProcessor::createP
         layout.add(std::make_unique<juce::AudioParameterChoice>(
             juce::ParameterID{bandID(i, "Slope"), ver}, label + "Slope",
             kSlopeChoices, kDefaultSlopeIndex));
+
+        // Dynamic EQ (level-dependent band gain). Applies to the gain-bearing
+        // matched types only (Bell/Low Shelf/High Shelf/Tilt); ignored otherwise.
+        layout.add(std::make_unique<juce::AudioParameterBool>(
+            juce::ParameterID{bandID(i, "DynOn"), ver}, label + "Dyn", false));
+
+        // Signed range: the SIGN sets direction (boost vs cut), the magnitude the
+        // amount — one control folds both, so +/- are pure mirror images.
+        layout.add(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{bandID(i, "DynRange"), ver}, label + "DynRange",
+            juce::NormalisableRange<float>(-30.0f, 30.0f, 0.1f), 0.0f,
+            juce::AudioParameterFloatAttributes().withLabel("dB")));
+
+        layout.add(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{bandID(i, "DynThresh"), ver}, label + "DynThresh",
+            juce::NormalisableRange<float>(-60.0f, 0.0f, 0.1f), -24.0f,
+            juce::AudioParameterFloatAttributes().withLabel("dB")));
+
+        layout.add(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{bandID(i, "DynAttack"), ver}, label + "DynAtt",
+            juce::NormalisableRange<float>(0.05f, 100.0f, 0.01f, 0.4f), 2.0f,
+            juce::AudioParameterFloatAttributes().withLabel("ms")));
+
+        layout.add(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{bandID(i, "DynRelease"), ver}, label + "DynRel",
+            juce::NormalisableRange<float>(5.0f, 1000.0f, 0.1f, 0.4f), 80.0f,
+            juce::AudioParameterFloatAttributes().withLabel("ms")));
     }
 
     return layout;
@@ -170,6 +202,15 @@ SvfBandNode::BandParams MetaPluginProcessor::readBandParams(int i, int numSample
     const int slopeIdx = juce::jlimit(0, static_cast<int>(kSlopeValues.size()) - 1,
                                       static_cast<int>(bandSlope[idx]->load()));
     p.slope = kSlopeValues[static_cast<std::size_t>(slopeIdx)];
+
+    // Dynamic-EQ params: block-polled straight from the atomics (no smoother).
+    // They drive the detector/gain-computer, not the audio path, so a per-block
+    // step is harmless — the detector's ballistics already smooth the response.
+    p.dynEnabled = bandDynOn[idx]->load() > 0.5f;
+    p.dynRangeDb = bandDynRange[idx]->load();
+    p.dynThresholdDb = bandDynThresh[idx]->load();
+    p.dynAttackMs = bandDynAttack[idx]->load();
+    p.dynReleaseMs = bandDynRelease[idx]->load();
     return p;
 }
 
@@ -209,6 +250,11 @@ void MetaPluginProcessor::prepareToPlay(double sampleRate, int samplesPerBlock) 
         const int slopeIdx = juce::jlimit(0, static_cast<int>(kSlopeValues.size()) - 1,
                                           static_cast<int>(bandSlope[idx]->load()));
         p.slope = kSlopeValues[static_cast<std::size_t>(slopeIdx)];
+        p.dynEnabled = bandDynOn[idx]->load() > 0.5f;
+        p.dynRangeDb = bandDynRange[idx]->load();
+        p.dynThresholdDb = bandDynThresh[idx]->load();
+        p.dynAttackMs = bandDynAttack[idx]->load();
+        p.dynReleaseMs = bandDynRelease[idx]->load();
         eq.setBandParams(i, p);
 
         const bool en = bandEnabled[idx]->load() > 0.5f;
@@ -270,6 +316,12 @@ void MetaPluginProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::M
 
     // 3) Run the 16-band cascade (disabled bands skipped inside).
     eq.process(buffer.getArrayOfWritePointers(), buffer.getNumChannels(), numSamples);
+
+    // 3b) Publish each band's dynamic gain offset for the editor (plain float
+    //     store, relaxed — dsp/ stays atomic-free; the node exposes a plain read).
+    for (int i = 0; i < kNumBands; ++i)
+        bandOffsetDb[static_cast<std::size_t>(i)].store(
+            static_cast<float>(eq.getBandOffsetDb(i)), std::memory_order_relaxed);
 
     // 4) Output trim.
     gainSmoother.setTargetValue(juce::Decibels::decibelsToGain(gainParamDb->load()));

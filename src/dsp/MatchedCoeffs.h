@@ -6,14 +6,14 @@
 #include "dsp/BandResponse.h"
 
 /**
-    Ivantsov "phi-mapped" matched-IIR coefficients + normal-form state-space
-    realization. This is the SINGLE source of the digital biquad (b0,b1,b2,a1,a2)
-    for the six "matched" band types — Bell, LowShelf, HighShelf, Tilt, Notch,
-    Bandpass — consumed by BOTH the audio kernel (SvfBandNode) and the UI
-    response evaluator (bandMagnitudeDb below). Low/High-pass are NOT here: they
-    stay on BandResponse.h's TPT-SVF Butterworth cascade (a matched per-section
-    LP cascade compounds up to 4.35 dB of Nyquist residual at 96 dB/oct — proto
-    test 7 carve-out).
+    Ivantsov "phi-mapped" matched-IIR coefficients. This is the SINGLE source of
+    the digital biquad (b0,b1,b2,a1,a2) for the six "matched" band types — Bell,
+    LowShelf, HighShelf, Tilt, Notch, Bandpass — consumed by BOTH the audio kernel
+    (SvfBandNode, realized in Direct Form I) and the UI response evaluator
+    (bandMagnitudeDb below). Low/High-pass are NOT here: they stay on
+    BandResponse.h's TPT-SVF Butterworth cascade (a matched per-section LP cascade
+    compounds up to 4.35 dB of Nyquist residual at 96 dB/oct — proto test 7
+    carve-out).
 
     WHY a different filter design at all (the DSP "why"): the incumbent TPT-SVF
     uses the bilinear transform, which squeezes the whole frequency axis toward
@@ -23,24 +23,19 @@
     ~0.5 dB in the musical core (vs the BLT's several dB near the top octave),
     and is 3.5-10x better than the BLT on the resonant shelves.
 
-    WHY the "normal form" realization (not a plain biquad): parameter smoothing
-    recomputes coefficients every block while the filter's state is live. A
-    direct-form biquad stores delay memory (z1,z2) that is only valid for the
-    exact coefficients that produced it — swap coefficients mid-flight and you
-    inject a transient the new filter was never designed to carry (audible zipper
-    / click at high Q/gain). The normal form's 2x2 state matrix A=[[re,im],
-    [-im,re]] has spectral norm exactly equal to the pole radius (< 1), the
-    theoretical best conditioning, so its state stays physically meaningful when
-    coefficients change. That is what lets one topology serve every matched type
-    AND survive fast modulation. (Proto test 6 confirmed peak/zipper parity with
-    the smooth TPT-SVF reference; proto test 5 confirmed the realization
-    reconstructs H(z) to 1e-13.)
+    WHERE THE REALIZATION LIVES: this file emits only the biquad COEFFICIENTS and
+    an exact magnitude evaluator. SvfBandNode realizes them in Direct Form I —
+    NOT the Stage-1 normal form, which was removed once the matched path started
+    modulating its coefficients at a sub-block cadence (the normal form's
+    eigenbasis state is ill-conditioned near the repeated-pole crossing a deep
+    cut reaches; DF1's literal past-sample state is not). See SvfBandNode.h's
+    header for the full DF1 rationale and proto/dynamic_eq.py test 9 for the
+    2.7-10x-vs-0.8-1.0x measurement that forced the switch.
 
     Ground truth: proto/matched_kernel.py (VERIFIED). Formulas ported verbatim —
     the phi/nu/kappa machinery, the sigma constant, the corrected-omega frequency
-    placement, Ivantsov Table 3.1, tilt = (1/A)*high_shelf(g=A^2), and the
-    complex/real normal-form branches. Do not re-derive here; edit the proto,
-    re-verify, then re-port.
+    placement, Ivantsov Table 3.1, tilt = (1/A)*high_shelf(g=A^2). Do not
+    re-derive here; edit the proto, re-verify, then re-port.
 */
 namespace matched {
 
@@ -206,84 +201,47 @@ inline double biquadMagnitudeDb(const Biquad& q, double fs, double f) {
     return 20.0 * std::log10(m > 1.0e-300 ? m : 1.0e-300);
 }
 
-// --- Normal-form state-space realization (proto: normal_form_*) -----------
-
-/** Realization of one biquad as a 2-state normal form. Complex-pole branch
-    (a1^2 < 4a2): A = [[re,im],[-im,re]]. Real-pole branch (a1^2 >= 4a2):
-    diagonal poles l1,l2 in parallel. d is the direct feedthrough, (c1,c2) the
-    output mixing / residues. */
-struct NormalForm {
-    bool isComplex = true;
-    double p1 = 0.0, p2 = 0.0;  // complex: (re, im);  real: (l1, l2)
-    double c1 = 0.0, c2 = 0.0, d = 0.0;
-};
-
-constexpr double kRepeatedPoleEps = 1e-9;
-
-inline NormalForm normalForm(const Biquad& q) {
-    const double b0 = q.b0, b1 = q.b1, b2 = q.b2;
-    double a1 = q.a1, a2 = q.a2;
-
-    double disc = a1 * a1 - 4.0 * a2;
-    // Perturb a2 fractionally on the (measure-zero) exact-repeated-pole boundary
-    // to avoid l1==l2 division-by-zero in the real branch's residue formula
-    // (Jordan-block hazard). Not hit by musical Q/gain ranges — defensive only.
-    if (std::abs(disc) < kRepeatedPoleEps) {
-        a2 = (a2 != 0.0) ? a2 * (1.0 - 1e-6) : a2 - 1e-9;
-        disc = a1 * a1 - 4.0 * a2;
-    }
-
-    NormalForm nf;
-    if (disc < 0.0) {
-        nf.isComplex = true;
-        const double re = -a1 / 2.0;
-        const double im = std::sqrt(a2 - a1 * a1 / 4.0);
-        nf.p1 = re;
-        nf.p2 = im;
-        nf.d = b0;
-        nf.c1 = b1 - b0 * a1;
-        nf.c2 = (b0 * a2 - b2 - nf.c1 * re) / im;
-    } else {
-        nf.isComplex = false;
-        const double ds = std::sqrt(disc);
-        const double l1 = (-a1 + ds) / 2.0;
-        const double l2 = (-a1 - ds) / 2.0;
-        nf.p1 = l1;
-        nf.p2 = l2;
-        nf.c1 = (b0 * l1 * l1 + b1 * l1 + b2) / (l1 * (l1 - l2));
-        nf.c2 = (b0 * l2 * l2 + b1 * l2 + b2) / (l2 * (l2 - l1));
-        nf.d = b0 - nf.c1 - nf.c2;
-    }
-    return nf;
-}
-
-/** Complex frequency response of the normal-form realization (pure linear
-    algebra, no simulation) — equals biquadResponse() for the source biquad.
-    Used only in tests. */
-inline std::complex<double> normalFormResponse(const NormalForm& nf, double w) {
-    const std::complex<double> z = std::exp(std::complex<double>(0.0, w));
-    if (nf.isComplex) {
-        const std::complex<double> zc = z - nf.p1;  // z - re
-        const std::complex<double> det = zc * zc + nf.p2 * nf.p2;
-        const std::complex<double> num = nf.c1 * zc - nf.c2 * nf.p2;
-        return nf.d + num / det;
-    }
-    return nf.d + nf.c1 * z / (z - nf.p1) + nf.c2 * z / (z - nf.p2);
-}
-
 // --- Unified band response for the UI curve -------------------------------
 
 /** Full band magnitude at a display frequency, in dB. Matched types are drawn
     from the exact digital biquad the kernel runs; Low/High-pass fall through to
     the TPT-SVF analog-cascade evaluator (BandResponse.h). This is the ONE curve
     entry the UI and the offline cross-check both call. */
+/** Prepared single-band magnitude evaluator. For a matched type it holds the
+    biquad computed ONCE (the phi/nu/kappa + corrected-omega machinery is the
+    expensive part); for Low/High-pass it holds the params for the TPT-SVF
+    fallthrough. Built once per band, then queried per display frequency -- this
+    hoists computeBiquad() out of the UI's per-point loops (400 points x 3 curves
+    per dynamic band, redrawn every timer tick) while calling the EXACT same
+    computeBiquad the audio kernel runs, so drawn and heard still cannot drift
+    (UI single-source rule). bandMagnitudeDb() below is the same code path for
+    single-point callers. */
+struct BandEval {
+    bool matched = false;
+    Biquad bq{};                 // valid when matched
+    svfcoeffs::Type type = svfcoeffs::Type::Bell;  // fallthrough params
+    double f0 = 1000.0, q = 0.7071, gainDb = 0.0, slope = 12.0, fs = 44100.0;
+
+    double magnitudeDb(double f) const {
+        if (matched)
+            return biquadMagnitudeDb(bq, fs, f);
+        return svfcoeffs::magnitudeDb(type, f0, q, gainDb, slope, fs, f);
+    }
+};
+
+inline BandEval prepareBandEval(svfcoeffs::Type type, double f0, double q, double gainDb,
+                                double slope, double fs) {
+    BandEval e;
+    e.matched = isMatchedType(type);
+    e.type = type; e.f0 = f0; e.q = q; e.gainDb = gainDb; e.slope = slope; e.fs = fs;
+    if (e.matched)
+        e.bq = computeBiquad(type, fs, f0, q, gainDb);
+    return e;
+}
+
 inline double bandMagnitudeDb(svfcoeffs::Type type, double f0, double q, double gainDb,
                               double slope, double fs, double f) {
-    if (isMatchedType(type)) {
-        const Biquad bq = computeBiquad(type, fs, f0, q, gainDb);
-        return biquadMagnitudeDb(bq, fs, f);
-    }
-    return svfcoeffs::magnitudeDb(type, f0, q, gainDb, slope, fs, f);
+    return prepareBandEval(type, f0, q, gainDb, slope, fs).magnitudeDb(f);
 }
 
 }  // namespace matched

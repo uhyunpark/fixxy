@@ -24,12 +24,14 @@
     band either way updates both the strip's attachments and the emphasized
     curve/handle.
 */
-class EqEditor : public juce::AudioProcessorEditor {
+class EqEditor : public juce::AudioProcessorEditor,
+                  private juce::AudioProcessorValueTreeState::Listener,
+                  private juce::AsyncUpdater {
 public:
     explicit EqEditor(MetaPluginProcessor& p)
         : AudioProcessorEditor(p), proc(p), background(map),
           analyzer(p.preFifo, p.postFifo, map, p.publishedSampleRate),
-          curve(p.apvts, map, p.publishedSampleRate),
+          curve(p.apvts, map, p.publishedSampleRate, p.bandOffsetDb),
           dragger(p.apvts, map, curve, p.publishedSampleRate) {
         addAndMakeVisible(background);
         addAndMakeVisible(analyzer);  // behind the curve, above the grid
@@ -92,6 +94,12 @@ public:
         setSize(900, 600);
     }
 
+    ~EqEditor() override {
+        cancelPendingUpdate();
+        if (currentTypeParamId.isNotEmpty())
+            proc.apvts.removeParameterListener(currentTypeParamId, this);
+    }
+
     void resized() override {
         auto r = getLocalBounds();
         auto controls = r.removeFromBottom(96);
@@ -146,6 +154,47 @@ private:
         qAttachment = std::make_unique<SliderAttachment>(proc.apvts, bandID(band, "Q"), qSlider);
         gainAttachment = std::make_unique<SliderAttachment>(proc.apvts, bandID(band, "Gain"), gainSlider);
         slopeAttachment = std::make_unique<ComboAttachment>(proc.apvts, bandID(band, "Slope"), slopeBox);
+
+        // P0-3/P1-2 upkeep: re-point the Type listener at whichever band is
+        // now selected (so host automation on a non-selected band never
+        // touches this editor's slope/colour state), then refresh both
+        // immediately -- band-selection change is itself a "type changed"
+        // event as far as the slope box and On-toggle colour are concerned.
+        if (currentTypeParamId.isNotEmpty())
+            proc.apvts.removeParameterListener(currentTypeParamId, this);
+        currentTypeParamId = bandID(band, "Type");
+        proc.apvts.addParameterListener(currentTypeParamId, this);
+
+        updateSlopeEnablement();
+
+        const auto colour = bandColour(band);
+        enabledButton.setColour(juce::ToggleButton::tickColourId, colour);
+        enabledButton.setColour(juce::ToggleButton::tickDisabledColourId, colour.withAlpha(0.6f));
+    }
+
+    // P0-3: the slope control only means anything for Lowpass/Highpass --
+    // every other band type ignores it entirely (see MultibandEq). Greying
+    // it out otherwise stops users hunting for an effect that isn't there.
+    void updateSlopeEnablement() {
+        const int band = bandSelect.getSelectedId() - 1;
+        if (band < 0) return;
+        const int type = static_cast<int>(proc.apvts.getRawParameterValue(bandID(band, "Type"))->load());
+        slopeBox.setEnabled(type == kLowpass || type == kHighpass);
+    }
+
+    // Type param can change from three places: this editor's own typeBox
+    // (via ComboBoxAttachment), the band-select combo picking a different
+    // band (handled directly in rebuildAttachments above), or host
+    // automation -- which, per APVTS::Listener's contract, may call back on
+    // a non-message thread, so this only flags work; handleAsyncUpdate()
+    // does the actual GUI touch.
+    void parameterChanged(const juce::String&, float) override { triggerAsyncUpdate(); }
+
+    void handleAsyncUpdate() override { updateSlopeEnablement(); }
+
+    static juce::Colour bandColour(int i) {
+        return juce::Colour::fromHSV(static_cast<float>(i) / static_cast<float>(MetaPluginProcessor::kNumBands),
+                                      0.65f, 0.95f, 1.0f);
     }
 
     // Must match the choice order in PluginProcessor.cpp exactly.
@@ -153,6 +202,8 @@ private:
         "Bell", "Low Shelf", "High Shelf", "Tilt", "Notch", "Bandpass", "Lowpass", "Highpass"};
     static inline const juce::StringArray kSlopeChoices{
         "6", "12", "18", "24", "30", "36", "48", "72", "96"};
+    static constexpr int kLowpass = 6;
+    static constexpr int kHighpass = 7;
 
     MetaPluginProcessor& proc;
 
@@ -188,6 +239,8 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> qAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> gainAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> slopeAttachment;
+
+    juce::String currentTypeParamId;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(EqEditor)
 };

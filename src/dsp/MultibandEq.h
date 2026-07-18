@@ -49,8 +49,16 @@ public:
                               static_cast<std::size_t>(maxBlockSize),
                           0.0f);
 
-        for (auto& b : bands)
-            b.prepare(sampleRate, maxBlockSize, nCh);
+        // Stagger each band's K-cadence coefficient re-bake phase across the
+        // cadence window (band i -> i*K/kNumBands samples) so the 16 dynamic bands
+        // never recompute their matched biquads on the same sample -- avoids a
+        // per-sample spike of up to 16 transcendental designs at once. Set BEFORE
+        // prepare(): prepare()'s internal reset() seeds dynCounter from this phase.
+        for (std::size_t bi = 0; bi < kNumBands; ++bi) {
+            bands[bi].setDynCadencePhase(static_cast<int>(
+                bi * static_cast<std::size_t>(SvfBandNode::kDynCoeffCadence) / kNumBands));
+            bands[bi].prepare(sampleRate, maxBlockSize, nCh);
+        }
     }
 
     /** Clear all band state and settle every fade to its target. */
@@ -63,6 +71,13 @@ public:
 
     void setBandParams(int i, const SvfBandNode::BandParams& p) {
         bands[static_cast<std::size_t>(i)].setParams(p);
+    }
+
+    /** Per-band dynamic gain OFFSET (signed dB) as of the last processed sample —
+        read AFTER process() by the plugin for its GR meter / curve. dsp/ stays
+        atomic-free; the plugin owns the std::atomic publish. 0 for static bands. */
+    double getBandOffsetDb(int i) const {
+        return bands[static_cast<std::size_t>(i)].getOffsetDb();
     }
 
     /** Toggle a band. immediate=true snaps the blend gain (used at prepare/load);

@@ -46,8 +46,9 @@ public:
         atomic read, no locks against the audio thread); a change marks every
         band dirty for recompute. */
     CurveView(juce::AudioProcessorValueTreeState& state, CoordMap& mapIn,
-              const std::atomic<double>& hostFs)
-        : apvts(state), map(mapIn), hostSampleRate(hostFs) {
+              const std::atomic<double>& hostFs,
+              const std::array<std::atomic<float>, kNumBands>& offsets)
+        : apvts(state), map(mapIn), hostSampleRate(hostFs), bandOffsets(offsets) {
         displayFs = readHostFs();
         const float logMin = std::log10(CoordMap::kMinFreq);
         const float logMax = std::log10(CoordMap::kMaxFreq);
@@ -78,13 +79,32 @@ public:
     void resized() override {
         // Pixel mapping changed; re-stroke from already-cached dB data (no
         // DSP recompute needed).
-        for (int i = 0; i < kNumBands; ++i)
+        for (int i = 0; i < kNumBands; ++i) {
             buildPathForBand(i);
+            if (dynActiveCache[static_cast<std::size_t>(i)]) {
+                buildExcursionPath(i);
+                recomputeLiveCurve(i);
+            }
+        }
         rebuildSumPath();
         repaint();
     }
 
     void paint(juce::Graphics& g) override {
+        // Dynamic excursion first, UNDER the static band paths: a subtle filled
+        // region between the band curve at its static gain and at static+range
+        // (the full travel the dynamics can reach), plus the live curve at
+        // static+offset (where the detector currently has it). Shows the user the
+        // envelope of possible motion and the instantaneous position at a glance.
+        for (int i = 0; i < kNumBands; ++i) {
+            const auto idx = static_cast<std::size_t>(i);
+            if (!enabledCache[idx] || !dynActiveCache[idx]) continue;
+            g.setColour(bandColour(i).withAlpha(0.12f));
+            g.fillPath(excursionPath[idx]);
+            g.setColour(bandColour(i).withAlpha(i == selectedBand ? 0.75f : 0.5f));
+            g.strokePath(livePath[idx], juce::PathStrokeType(1.0f));
+        }
+
         for (int i = 0; i < kNumBands; ++i) {
             if (!enabledCache[static_cast<std::size_t>(i)]) continue;
             const bool selected = (i == selectedBand);
@@ -107,8 +127,11 @@ public:
     }
 
 private:
-    static constexpr std::array<const char*, 6> kSuffixes{
-        "Enabled", "Type", "Freq", "Q", "Gain", "Slope"};
+    // DynOn/DynRange reshape the drawn excursion region, so they mark the band
+    // dirty like the static params. DynThresh/Attack/Release only move the live
+    // OFFSET, which the timer polls from the published atomic — no listener needed.
+    static constexpr std::array<const char*, 8> kSuffixes{
+        "Enabled", "Type", "Freq", "Q", "Gain", "Slope", "DynOn", "DynRange"};
 
     static juce::String bandID(int i, const char* suffix) {
         return "band" + juce::String(i + 1) + suffix;
@@ -142,10 +165,26 @@ private:
                 any = true;
             }
         }
-        if (any) {
+        if (any)
             rebuildSumPath();
-            repaint();
+
+        // Poll the published dynamic offsets and re-stroke the live curve of any
+        // dyn-active band whose gain has moved perceptibly (> 0.01 dB). Plain
+        // relaxed atomic reads — no locks against the audio thread. Only the live
+        // path moves; the static band + sum paths are untouched, so this stays
+        // cheap even with several dynamic bands running.
+        bool liveMoved = false;
+        for (int i = 0; i < kNumBands; ++i) {
+            const auto idx = static_cast<std::size_t>(i);
+            if (!enabledCache[idx] || !dynActiveCache[idx]) continue;
+            const double offset = static_cast<double>(bandOffsets[idx].load(std::memory_order_relaxed));
+            if (std::abs(offset - lastLiveOffset[idx]) > 0.01) {
+                recomputeLiveCurve(i);
+                liveMoved = true;
+            }
         }
+        if (any || liveMoved)
+            repaint();
     }
 
     void parameterChanged(const juce::String& paramID, float) override {
@@ -180,11 +219,37 @@ private:
             juce::jlimit(0, static_cast<int>(kSlopeValues.size()) - 1, slopeIdx))];
 
         enabledCache[idx] = enabled;
+        // Hoist the matched-biquad design out of the point loop: build once, then
+        // evaluate the magnitude at each of the 400 display frequencies.
+        const matched::BandEval eval = matched::prepareBandEval(type, f0, q, gainDb, slope, displayFs);
         for (int p = 0; p < kNumPoints; ++p) {
-            dbCache[idx][static_cast<std::size_t>(p)] = static_cast<float>(matched::bandMagnitudeDb(
-                type, f0, q, gainDb, slope, displayFs, freqPoints[static_cast<std::size_t>(p)]));
+            dbCache[idx][static_cast<std::size_t>(p)] = static_cast<float>(
+                eval.magnitudeDb(freqPoints[static_cast<std::size_t>(p)]));
         }
         buildPathForBand(i);
+
+        // Dynamic excursion: only the gain-bearing matched types take dynamics
+        // (mirrors SvfBandNode::isDynamicCapableType). Cache the band curve at
+        // static+range and cache the static gain so the timer can draw the live
+        // curve at static+offset without re-reading params.
+        const bool dynOn = apvts.getRawParameterValue(bandID(i, "DynOn"))->load() > 0.5f;
+        const bool capable = type == SvfBandNode::Type::Bell ||
+                             type == SvfBandNode::Type::LowShelf ||
+                             type == SvfBandNode::Type::HighShelf ||
+                             type == SvfBandNode::Type::Tilt;
+        dynActiveCache[idx] = dynOn && capable;
+        staticGainCache[idx] = gainDb;
+        if (dynActiveCache[idx]) {
+            const double range = static_cast<double>(apvts.getRawParameterValue(bandID(i, "DynRange"))->load());
+            dynRangeCache[idx] = range;
+            const matched::BandEval evalHi =
+                matched::prepareBandEval(type, f0, q, gainDb + range, slope, displayFs);
+            for (int p = 0; p < kNumPoints; ++p)
+                dbCacheHi[idx][static_cast<std::size_t>(p)] = static_cast<float>(
+                    evalHi.magnitudeDb(freqPoints[static_cast<std::size_t>(p)]));
+            buildExcursionPath(i);
+            recomputeLiveCurve(i);  // seed the live path from the current offset
+        }
     }
 
     void buildPathForBand(int i) {
@@ -197,6 +262,51 @@ private:
             if (p == 0) path.startNewSubPath(x, y);
             else path.lineTo(x, y);
         }
+    }
+
+    // Filled region between the static-gain curve (dbCache) and the
+    // static+range curve (dbCacheHi): forward along the static curve, back along
+    // the range curve, closed. Realization-independent — pure display geometry.
+    void buildExcursionPath(int i) {
+        const auto idx = static_cast<std::size_t>(i);
+        juce::Path& path = excursionPath[idx];
+        path.clear();
+        for (int p = 0; p < kNumPoints; ++p) {
+            const float x = map.freqToX(freqPoints[static_cast<std::size_t>(p)]);
+            const float y = map.dbToY(dbCache[idx][static_cast<std::size_t>(p)]);
+            if (p == 0) path.startNewSubPath(x, y);
+            else path.lineTo(x, y);
+        }
+        for (int p = kNumPoints - 1; p >= 0; --p) {
+            const float x = map.freqToX(freqPoints[static_cast<std::size_t>(p)]);
+            const float y = map.dbToY(dbCacheHi[idx][static_cast<std::size_t>(p)]);
+            path.lineTo(x, y);
+        }
+        path.closeSubPath();
+    }
+
+    // Live curve at static + current offset. offset in [0,range] scales the same
+    // way the audio band gain moves, so a single bandMagnitudeDb pass at
+    // (staticGain + offset) gives the exact displayed position.
+    void recomputeLiveCurve(int i) {
+        const auto idx = static_cast<std::size_t>(i);
+        const double offset = static_cast<double>(bandOffsets[idx].load(std::memory_order_relaxed));
+        const double f0 = static_cast<double>(apvts.getRawParameterValue(bandID(i, "Freq"))->load());
+        const double q = static_cast<double>(apvts.getRawParameterValue(bandID(i, "Q"))->load());
+        const auto type = static_cast<SvfBandNode::Type>(
+            static_cast<int>(apvts.getRawParameterValue(bandID(i, "Type"))->load()));
+        juce::Path& path = livePath[idx];
+        path.clear();
+        const matched::BandEval eval =
+            matched::prepareBandEval(type, f0, q, staticGainCache[idx] + offset, 12.0, displayFs);
+        for (int p = 0; p < kNumPoints; ++p) {
+            const double db = eval.magnitudeDb(freqPoints[static_cast<std::size_t>(p)]);
+            const float x = map.freqToX(freqPoints[static_cast<std::size_t>(p)]);
+            const float y = map.dbToY(static_cast<float>(db));
+            if (p == 0) path.startNewSubPath(x, y);
+            else path.lineTo(x, y);
+        }
+        lastLiveOffset[idx] = offset;
     }
 
     void rebuildSumPath() {
@@ -223,6 +333,7 @@ private:
     juce::AudioProcessorValueTreeState& apvts;
     CoordMap& map;
     const std::atomic<double>& hostSampleRate;
+    const std::array<std::atomic<float>, kNumBands>& bandOffsets;
     double displayFs = kFallbackFs;
 
     std::array<float, kNumPoints> freqPoints{};
@@ -231,6 +342,15 @@ private:
     std::array<juce::Path, kNumBands> bandPaths{};
     juce::Path sumPath;
     int selectedBand = -1;
+
+    // Dynamic-EQ display state.
+    std::array<bool, kNumBands> dynActiveCache{};
+    std::array<double, kNumBands> dynRangeCache{};
+    std::array<double, kNumBands> staticGainCache{};
+    std::array<double, kNumBands> lastLiveOffset{};
+    std::array<std::array<float, kNumPoints>, kNumBands> dbCacheHi{};
+    std::array<juce::Path, kNumBands> excursionPath{};
+    std::array<juce::Path, kNumBands> livePath{};
 
     std::array<std::atomic<bool>, kNumBands> dirty{};
 };

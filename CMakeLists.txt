@@ -117,6 +117,18 @@ target_compile_features(CompressorNodeTest PRIVATE cxx_std_20)
 set_source_files_properties(test/compressor_node_test.cpp PROPERTIES
     COMPILE_OPTIONS "-Wall;-Wextra;-Wconversion;-Wshadow")
 
+# Offline unit test: the dynamic-EQ path in SvfBandNode (detector -> knee ->
+# ballistics -> K-cadence matched-bell re-bake -> Direct Form I) vs. proto-
+# generated fixtures (test/dynamic_eq_fixtures.h from
+# proto/dump_dynamic_fixtures.py). offsetDb trajectory to 1e-9, settled coeffs to
+# 1e-12, below-threshold bit-exactness, settled null, symmetry, DF1 impulse vs
+# transfer, worst-corner deep-cut stability. Plain C++, no JUCE — same rationale.
+add_executable(DynamicEqTest test/dynamic_eq_test.cpp)
+target_include_directories(DynamicEqTest PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/test)
+target_compile_features(DynamicEqTest PRIVATE cxx_std_20)
+set_source_files_properties(test/dynamic_eq_test.cpp PROPERTIES
+    COMPILE_OPTIONS "-Wall;-Wextra;-Wconversion;-Wshadow")
+
 # AnalyzerEngine test: pushes known signals through the analyzer and asserts the
 # dB output (peak bin/level, tilt slope). Needs juce::dsp::FFT, so it's a JUCE
 # console app linking juce_dsp only — deliberately kept out of the plugin target.

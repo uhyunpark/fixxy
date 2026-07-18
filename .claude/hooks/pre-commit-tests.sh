@@ -20,6 +20,7 @@ BAND_RESPONSE_TEST="$BUILD_DIR/BandResponseTest"
 MATCHED_KERNEL_TEST="$BUILD_DIR/MatchedKernelTest"
 ANALYZER_ENGINE_TEST="$BUILD_DIR/AnalyzerEngineTest_artefacts/AnalyzerEngineTest"
 COMPRESSOR_NODE_TEST="$BUILD_DIR/CompressorNodeTest"
+DYNAMIC_EQ_TEST="$BUILD_DIR/DynamicEqTest"
 
 fail=0
 
@@ -40,6 +41,13 @@ fi
 if [ -x "$COMPRESSOR_NODE_TEST" ]; then
   if ! "$COMPRESSOR_NODE_TEST" >/dev/null 2>&1; then
     echo "pre-commit hook: CompressorNodeTest FAILED" >&2
+    fail=1
+  fi
+fi
+
+if [ -x "$DYNAMIC_EQ_TEST" ]; then
+  if ! "$DYNAMIC_EQ_TEST" >/dev/null 2>&1; then
+    echo "pre-commit hook: DynamicEqTest FAILED" >&2
     fail=1
   fi
 fi

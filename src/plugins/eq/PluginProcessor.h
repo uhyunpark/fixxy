@@ -58,6 +58,12 @@ public:
     SpectrumFifo preFifo;
     SpectrumFifo postFifo;
 
+    // Per-band dynamic gain OFFSET (signed dB), published from processBlock after
+    // the EQ runs (plain float store, relaxed). The editor's curve view reads
+    // these at paint rate to draw each dynamic band's live excursion. dsp/ stays
+    // atomic-free — same publish pattern as the compressor's GR meter.
+    std::array<std::atomic<float>, kNumBands> bandOffsetDb{};
+
 private:
     static constexpr int kAnalyzerFftSize = 4096;
     static constexpr double kAnalyzerMaxFs = 192000.0;
@@ -84,6 +90,16 @@ private:
     std::array<std::atomic<float>*, kNumBands> bandQ{};
     std::array<std::atomic<float>*, kNumBands> bandGain{};
     std::array<std::atomic<float>*, kNumBands> bandSlope{};
+
+    // --- Dynamic-EQ params (per band). Block-polled, NOT smoothed: they feed
+    // the detector (threshold/ballistics) and the gain-computer, none of which is
+    // the audio path directly — a per-block step in them is a slow control change
+    // the detector's own ballistics already smooth, so there is no zipper risk. ---
+    std::array<std::atomic<float>*, kNumBands> bandDynOn{};
+    std::array<std::atomic<float>*, kNumBands> bandDynRange{};
+    std::array<std::atomic<float>*, kNumBands> bandDynThresh{};
+    std::array<std::atomic<float>*, kNumBands> bandDynAttack{};
+    std::array<std::atomic<float>*, kNumBands> bandDynRelease{};
 
     std::array<juce::LinearSmoothedValue<double>, kNumBands> freqSmoother{};
     std::array<juce::LinearSmoothedValue<double>, kNumBands> qSmoother{};

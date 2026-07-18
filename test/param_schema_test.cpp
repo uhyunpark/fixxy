@@ -137,7 +137,7 @@ void verifyEqSchema() {
           "vs APVTS layout");
     check("eq", "output gain default", nearlyEqual(gain.defaultVal, 0.0), "vs APVTS layout");
 
-    check("eq", "band schema has exactly 6 params", band.size() == 6,
+    check("eq", "band schema has exactly 11 params", band.size() == 11,
           ("count=" + std::to_string(band.size())).c_str());
     check("eq", "bandCount == MultibandEq::kNumBands", MultibandEq::kNumBands == 16,
           ("kNumBands=" + std::to_string(MultibandEq::kNumBands)).c_str());
@@ -206,6 +206,46 @@ void verifyEqSchema() {
     check("eq", "node type default is Bell", nodeDefaults.type == SvfBandNode::Type::Bell, "");
     check("eq", "node q default matches schema",
           nearlyEqual(nodeDefaults.q, q->defaultVal), "");
+
+    // --- Dynamic-EQ params (transcribed from PluginProcessor.cpp) ---
+    const auto* dynOn = find(band, "band<N>DynOn");
+    check("eq", "band.DynOn is bool, default off",
+          dynOn && dynOn->type == paramschema::ParamType::Bool &&
+              nearlyEqual(dynOn->defaultVal, 0.0),
+          "vs APVTS layout");
+
+    const auto* dynRange = find(band, "band<N>DynRange");
+    check("eq", "band.DynRange range/default (signed +/-30 dB, 0)",
+          dynRange && nearlyEqual(dynRange->min, -30.0) && nearlyEqual(dynRange->max, 30.0) &&
+              nearlyEqual(dynRange->defaultVal, 0.0),
+          "vs APVTS layout");
+
+    const auto* dynThresh = find(band, "band<N>DynThresh");
+    check("eq", "band.DynThresh range/default (-60..0 dB, -24)",
+          dynThresh && nearlyEqual(dynThresh->min, -60.0) && nearlyEqual(dynThresh->max, 0.0) &&
+              nearlyEqual(dynThresh->defaultVal, -24.0),
+          "vs APVTS layout");
+
+    const auto* dynAtt = find(band, "band<N>DynAttack");
+    check("eq", "band.DynAttack range/default (0.05..100 ms, 2)",
+          dynAtt && nearlyEqual(dynAtt->min, 0.05) && nearlyEqual(dynAtt->max, 100.0) &&
+              nearlyEqual(dynAtt->defaultVal, 2.0),
+          "vs APVTS layout");
+
+    const auto* dynRel = find(band, "band<N>DynRelease");
+    check("eq", "band.DynRelease range/default (5..1000 ms, 80)",
+          dynRel && nearlyEqual(dynRel->min, 5.0) && nearlyEqual(dynRel->max, 1000.0) &&
+              nearlyEqual(dynRel->defaultVal, 80.0),
+          "vs APVTS layout");
+
+    // Node BandParams defaults must agree with the schema defaults.
+    const SvfBandNode::BandParams dynDefaults{};
+    check("eq", "node dyn defaults match schema",
+          dynDefaults.dynEnabled == false && nearlyEqual(dynDefaults.dynRangeDb, 0.0) &&
+              nearlyEqual(dynDefaults.dynThresholdDb, -24.0) &&
+              nearlyEqual(dynDefaults.dynAttackMs, 2.0) &&
+              nearlyEqual(dynDefaults.dynReleaseMs, 80.0),
+          "vs SvfBandNode::BandParams");
 
     // bandParamId() placeholder expansion sanity.
     check("eq", "bandParamId expands <N> correctly",

@@ -1,14 +1,17 @@
 // Offline verification of the Ivantsov matched-coefficient kernel (the
-// normal-form realization inside SvfBandNode) against the VERIFIED proto
+// Direct Form I realization inside SvfBandNode) against the VERIFIED proto
 // (proto/matched_kernel.py) via generated fixtures. Plain C++, no JUCE —
 // same rationale as band_response_test.cpp.
 //
 // Gates:
 //   1. Coefficients: matched::computeBiquad reproduces the proto's (b0..a2) to
-//      1e-12 relative; branch dispatch matches; |H| to 1e-9 dB.
-//   2. Realization: matched::normalFormResponse == biquad transfer function
-//      (pure algebra) to 1e-10; and the ACTUAL SvfBandNode kernel's impulse
-//      response DFTs back to the transfer function to < 1e-3 dB.
+//      1e-12 relative; branch flag matches the fixture; |H| to 1e-9 dB. (The
+//      branch flag is a property of the coefficients, not of the realization —
+//      it survives the normal-form -> DF1 switch unchanged.)
+//   2. Realization: the DF1 recurrence's impulse response DFTs back to the
+//      biquad transfer function (2a, random biquads both pole regimes); and the
+//      ACTUAL SvfBandNode kernel's impulse response DFTs back to the transfer
+//      function (2b, proto fixtures).
 //   3. All-bands-off passthrough through MultibandEq is bit-exact.
 //   4. A block-smoothed f0 sweep of a matched band stays finite and bounded.
 
@@ -88,11 +91,21 @@ int main() {
             worstCoef = std::max(worstCoef, relErr(bq.a1, fx.a1));
             worstCoef = std::max(worstCoef, relErr(bq.a2, fx.a2));
 
-            const matched::NormalForm nf = matched::normalForm(bq);
-            if (nf.isComplex != fx.branchIsComplex) {
+            // Branch flag is a pure property of the denominator (a1^2 vs 4a2),
+            // independent of the realization. Mirror the proto's
+            // normal_form_dispatch boundary perturbation so the flag matches the
+            // fixture exactly on the (measure-zero) repeated-pole boundary.
+            double a2b = bq.a2;
+            double disc = bq.a1 * bq.a1 - 4.0 * a2b;
+            if (std::abs(disc) < 1e-9) {
+                a2b = (a2b != 0.0) ? a2b * (1.0 - 1e-6) : a2b - 1e-9;
+                disc = bq.a1 * bq.a1 - 4.0 * a2b;
+            }
+            const bool isComplex = disc < 0.0;
+            if (isComplex != fx.branchIsComplex) {
                 ++branchMismatch;
                 std::printf("[FAIL] %s: branch %s, expected %s\n", fx.name,
-                            nf.isComplex ? "complex" : "real",
+                            isComplex ? "complex" : "real",
                             fx.branchIsComplex ? "complex" : "real");
             }
 
@@ -114,30 +127,50 @@ int main() {
         ok &= p1;
     }
 
-    // ---- Gate 2a: normal-form realization == transfer function (algebra) ----
-    // Mirrors proto test5: random stable biquads on BOTH branches, kept clear of
-    // the repeated-pole boundary (so no perturbation) and of |r|=1. The
-    // realization must reconstruct H(z) exactly. Absolute (not relative) error:
+    // ---- Gate 2a: Direct Form I recurrence == transfer function ----
+    // The Stage-1 normal-form-vs-transfer algebra check is gone with the normal
+    // form (SvfBandNode now realizes matched biquads in DF1 — see its header).
+    // This is the DF1 replacement: run the SAME DF1 recurrence the kernel runs on
+    // random stable biquads spanning BOTH pole regimes (complex-conjugate and
+    // real), take the impulse response, and confirm it DFTs back to biquadResponse
+    // (the transfer function). A long IR (poles kept at r <= 0.95) makes
+    // truncation negligible, so the gate is tight. Absolute (not relative) error:
     // random numerators put zeros anywhere, so |H| can pass through 0 where a
     // relative metric explodes on rounding alone.
+    auto df1Ir = [](const matched::Biquad& bq, int n) {
+        std::vector<float> ir(static_cast<std::size_t>(n), 0.0f);
+        double x1 = 0.0, x2 = 0.0, y1 = 0.0, y2 = 0.0;
+        for (int i = 0; i < n; ++i) {
+            const double xi = (i == 0) ? 1.0 : 0.0;
+            const double yi = bq.b0 * xi + bq.b1 * x1 + bq.b2 * x2 - bq.a1 * y1 - bq.a2 * y2;
+            x2 = x1; x1 = xi;
+            y2 = y1; y1 = yi;
+            ir[static_cast<std::size_t>(i)] = static_cast<float>(yi);
+        }
+        return ir;
+    };
     {
         double worstAbs = 0.0;
         int nComplex = 0, nReal = 0;
-        const int nGrid = 1000;
+        constexpr int kIr = 1 << 15;  // 32768; r<=0.95 poles decay well within
+        const int nGrid = 64;
         Lcg rng;
-        for (int trial = 0; trial < 200; ++trial) {
+        for (int trial = 0; trial < 60; ++trial) {
             double a1, a2;
+            bool complexPole;
             if (trial % 2 == 0) {
                 const double r = rng.uniform(0.05, 0.95);
                 const double th = rng.uniform(0.05, kPi - 0.05);
                 a1 = -2.0 * r * std::cos(th);
                 a2 = r * r;
+                complexPole = true;
             } else {
                 double l1 = rng.uniform(-0.95, 0.95);
                 double l2 = rng.uniform(-0.95, 0.95);
                 while (std::abs(l1 - l2) < 1e-2) l2 = rng.uniform(-0.95, 0.95);
                 a1 = -(l1 + l2);
                 a2 = l1 * l2;
+                complexPole = false;
             }
             if (std::abs(a1 * a1 - 4.0 * a2) < 1e-6) continue;  // stay off the boundary
             matched::Biquad bq;
@@ -146,19 +179,19 @@ int main() {
             bq.b2 = rng.uniform(-2.0, 2.0);
             bq.a1 = a1;
             bq.a2 = a2;
+            complexPole ? ++nComplex : ++nReal;
 
-            const matched::NormalForm nf = matched::normalForm(bq);
-            nf.isComplex ? ++nComplex : ++nReal;
+            const std::vector<float> ir = df1Ir(bq, kIr);
             for (int k = 0; k < nGrid; ++k) {
-                const double w = 1e-4 + (2.0 * kPi - 2e-4) * static_cast<double>(k) / (nGrid - 1);
+                const double w = 1e-3 + (2.0 * kPi - 2e-3) * static_cast<double>(k) / (nGrid - 1);
                 const std::complex<double> hDirect = matched::biquadResponse(bq, w);
-                const std::complex<double> hNf = matched::normalFormResponse(nf, w);
-                worstAbs = std::max(worstAbs, std::abs(hNf - hDirect));
+                const std::complex<double> hDf1 = dftAt(ir, 2.0 * kPi, w);  // fs=2pi => w=f
+                worstAbs = std::max(worstAbs, std::abs(hDf1 - hDirect));
             }
         }
-        const bool p2a = worstAbs < 1e-10 && nComplex > 0 && nReal > 0;
-        std::printf("Gate 2a normal-form vs transfer (algebra): worst abs err=%.2e (< 1e-10), "
-                    "%d complex / %d real branch  [%s]\n",
+        const bool p2a = worstAbs < 1e-4 && nComplex > 0 && nReal > 0;
+        std::printf("Gate 2a DF1 recurrence vs transfer (impulse->DFT): worst abs err=%.2e "
+                    "(< 1e-4), %d complex / %d real branch  [%s]\n",
                     worstAbs, nComplex, nReal, p2a ? "PASS" : "FAIL");
         ok &= p2a;
     }

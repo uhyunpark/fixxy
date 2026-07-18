@@ -141,6 +141,65 @@ inline std::vector<paramschema::ParamDescriptor> bandSchema() {
         .choices = slopeChoices(),
     });
 
+    // --- Dynamic EQ (level-dependent band gain) ---
+    s.push_back(ParamDescriptor{
+        .id = "band<N>DynOn",
+        .type = ParamType::Bool,
+        .defaultVal = 0.0,
+        .note = "dynamics apply to the gain-bearing matched types only "
+                "(Bell/Low Shelf/High Shelf/Tilt); ignored for "
+                "Notch/Bandpass/Lowpass/Highpass.",
+    });
+
+    s.push_back(ParamDescriptor{
+        .id = "band<N>DynRange",
+        .type = ParamType::Float,
+        .min = -30.0,
+        .max = 30.0,
+        .unit = "dB",
+        .defaultVal = 0.0,
+        .note = "SIGNED excursion: the sign folds direction (positive = the "
+                "band gain rises toward gain+range as the detector engages, "
+                "negative = falls) and the magnitude folds amount, in one "
+                "control. Added to the static band gain, scaled 0..1 by the "
+                "detector demand.",
+    });
+
+    s.push_back(ParamDescriptor{
+        .id = "band<N>DynThresh",
+        .type = ParamType::Float,
+        .min = -60.0,
+        .max = 0.0,
+        .unit = "dB",
+        .defaultVal = -24.0,
+        .note = "refers to the BAND-LIMITED detector level (input through a "
+                "matched bandpass at the band's own f0/Q), not the full-band "
+                "level — a de-esser-style sidechain, so the same dB reads "
+                "differently than a broadband threshold.",
+    });
+
+    s.push_back(ParamDescriptor{
+        .id = "band<N>DynAttack",
+        .type = ParamType::Float,
+        .min = 0.05,
+        .max = 100.0,
+        .unit = "ms",
+        .defaultVal = 2.0,
+        .scale = Scale::Skewed,
+        .skewValue = 0.4,
+    });
+
+    s.push_back(ParamDescriptor{
+        .id = "band<N>DynRelease",
+        .type = ParamType::Float,
+        .min = 5.0,
+        .max = 1000.0,
+        .unit = "ms",
+        .defaultVal = 80.0,
+        .scale = Scale::Skewed,
+        .skewValue = 0.4,
+    });
+
     return s;
 }
 
