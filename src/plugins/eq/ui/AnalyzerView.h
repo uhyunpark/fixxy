@@ -64,6 +64,20 @@ public:
         g.fillPath(postFillPath);
         g.setColour(kPostColour.withAlpha(0.85f));
         g.strokePath(postLinePath, juce::PathStrokeType(1.3f));
+
+        // P1-1: right-edge dB labels for the analyzer's own -90..0 window.
+        // Deliberately on the opposite edge and dimmer than BackgroundPanel's
+        // left-edge +-24 EQ-gain labels -- two different axes sharing one
+        // rect would be confusing if they looked like one scale. No
+        // gridlines: the frequency/gain grid underneath already does that job.
+        g.setFont(juce::FontOptions(10.0f));
+        g.setColour(juce::Colour(0xff606068));
+        for (const float db : {0.0f, -30.0f, -60.0f, -90.0f}) {
+            const float y = dbToAnalyzerY(db);
+            g.drawText(juce::String(static_cast<int>(db)),
+                       static_cast<int>(map.bounds.getRight()) - 34, static_cast<int>(y) - 7, 30, 14,
+                       juce::Justification::centredRight);
+        }
     }
 
 private:

@@ -81,9 +81,11 @@ public:
 
     void paint(juce::Graphics& g) override {
         const double fs = readHostFs();
+        bool anyEnabled = false;
         for (int i = 0; i < kNumBands; ++i) {
             const BandSnapshot s = snapshot(i);
             if (!s.enabled) continue;
+            anyEnabled = true;
 
             const auto c = handleCenter(s, fs);
             const bool selected = (i == selectedBand);
@@ -101,12 +103,38 @@ public:
                            static_cast<int>(c.y) - 22, 30, 14, juce::Justification::centred);
             }
         }
+
+        // P0-1: with nothing on the curve, a first-time user has no visible
+        // way to discover the double-click-to-add gesture. Purely cosmetic --
+        // vanishes the instant any band is enabled.
+        if (!anyEnabled) {
+            g.setColour(juce::Colours::grey.withAlpha(0.5f));
+            g.setFont(juce::FontOptions(14.0f));
+            g.drawText("Double-click to add a band", getLocalBounds(), juce::Justification::centred);
+        }
+
+        // P0-2: hover preview of the band that a double-click would create
+        // here. Paint-only -- never affects hit-testing or click behaviour.
+        if (hasGhost) {
+            const float r = 5.0f;
+            g.setColour(bandColour(ghostBandIdx).withAlpha(0.35f));
+            g.fillEllipse(ghostCenter.x - r, ghostCenter.y - r, r * 2.0f, r * 2.0f);
+        }
     }
 
     void mouseMove(const juce::MouseEvent& e) override {
         const int hit = findHandleAt(e.position);
         setMouseCursor(hit >= 0 ? juce::MouseCursor::PointingHandCursor
                                  : juce::MouseCursor::NormalCursor);
+        updateGhost(hit, e.position);
+    }
+
+    void mouseExit(const juce::MouseEvent&) override {
+        setMouseCursor(juce::MouseCursor::NormalCursor);
+        if (hasGhost) {
+            hasGhost = false;
+            repaint();
+        }
     }
 
     void mouseDown(const juce::MouseEvent& e) override {
@@ -359,6 +387,35 @@ private:
         return best;
     }
 
+    // Recomputes the hover-ghost handle (P0-2). Mirrors the freq/gain-from-
+    // position mapping mouseDoubleClick uses, so the ghost lands exactly
+    // where a double-click there would actually place the new band.
+    void updateGhost(int hitHandle, juce::Point<float> pos) {
+        bool newHasGhost = false;
+        int newBand = -1;
+        juce::Point<float> newCenter;
+
+        if (hitHandle < 0) {
+            const int nearest = findNearestDisabledBand(pos.x);
+            if (nearest >= 0) {
+                BandSnapshot s = snapshot(nearest);
+                s.freqHz = map.xToFreq(pos.x);
+                if (isGainType(s.type)) s.gainDb = map.yToDb(pos.y);
+                newCenter = handleCenter(s, readHostFs());
+                newHasGhost = true;
+                newBand = nearest;
+            }
+        }
+
+        if (newHasGhost != hasGhost || newBand != ghostBandIdx ||
+            (newHasGhost && newCenter != ghostCenter)) {
+            hasGhost = newHasGhost;
+            ghostBandIdx = newBand;
+            ghostCenter = newCenter;
+            repaint();
+        }
+    }
+
     int findNearestDisabledBand(float clickX) const {
         const float clickFreq = map.xToFreq(clickX);
         int best = -1;
@@ -475,6 +532,11 @@ private:
 
     int selectedBand = -1;
     DragState drag;
+
+    // Hover-ghost state (P0-2). Message-thread only, driven from mouseMove.
+    bool hasGhost = false;
+    int ghostBandIdx = -1;
+    juce::Point<float> ghostCenter;
 
     std::array<float, kNumBands> lastFreqNorm{};
     std::array<float, kNumBands> lastGainNorm{};
