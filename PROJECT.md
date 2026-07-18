@@ -203,9 +203,11 @@ zsliu98의 오픈소스 JUCE 플러그인. 구현 순서와 거의 1:1로 대응
 | ZLSpectrumEqualizer | 스펙트럴 |
 | ZLSplitter | peak/steady, M/S, transient 분리 |
 
-**AGPL-3.0 (바이럴 카피레프트).** 코드 사용 시 소스 공개 의무. 읽고 배우는 용도로만.
+**AGPL-3.0 (바이럴 카피레프트).** 코드 사용 시 소스 공개 의무. 읽고 배우는 용도로만,
+절대 코드를 이 저장소에 복사하지 않는다. 워크플로우: 논문을 읽는다 → 직접 구현한다 →
+*그 다음* ZL과 대조한다 (결정 사항 참고).
 
-**빌드 시스템은 참조하지 않는다.** ZL의 템플릿/CMake를 fork하면 (a) 라이선스가 상용화 시점에 발목을 잡고 (b) 빌드가 블랙박스가 돼서 나중에 Faust/LLVM 링킹을 붙일 때 막힌다. ZL은 **DSP 코드 대조용으로만** 본다.
+**빌드 시스템은 참조하지 않는다.** ZL의 템플릿/CMake를 fork하면 (a) 라이선스가 상용화 시점에 발목을 잡고 (b) 빌드가 블랙박스가 돼서 나중에 Faust/LLVM 링킹을 붙일 때 막힌다. 우리 CMake, 우리 JUCE 통합, 우리 프로젝트 레이아웃을 직접 소유한다. ZL은 **DSP 코드 대조용으로만** 본다.
 
 ---
 
@@ -249,8 +251,12 @@ pamplejuce의 CMakeLists를 **읽고 이해**하는 건 좋지만, fork하지 �
 3. ~~Python DSP 프로토타이핑 환경 세팅 (`proto/`)~~ (완료)
 4. ~~EQ 밴드 1개(peaking) 구현, 멀티 타겟 빌드로 분리~~ (완료, Week 2)
 5. ~~멀티밴드 EQ로 확장 → 독립 제품(LpngEQ)으로 pluginval 통과~~ (완료: DSP + UI 3단계)
-6. Compressor 제품 시작 (Giannoulis 2012 + docs/compressor-reference.md)
-7. Matched filter C++ 커널 교체 — normal-form 실현, dynamic EQ 직전이 적기
-   (proto 검증 완료: proto/matched_filters.py)
-   (프로토 완료: proto/matched_kernel.py, Ivantsov GO — C++ 포트 진행 중)
-8. 자연어 EQ 레이어 — 별도 설계 세션 필요
+6. ~~Compressor 제품(LpngComp) — Giannoulis feed-forward~~ (완료, 커밋 6db1f86)
+7. ~~Matched filter C++ 커널 교체~~ (완료: Ivantsov 계수, **Direct Form I** 실현 — 애초
+   계획한 normal-form은 다이내믹 EQ의 서브블록 계수 변조 대응을 위해 DF1로 교체됨,
+   자세한 이유는 src/dsp/SvfBandNode.h 헤더 주석. 커밋 9dbac22)
+8. ~~파라미터 스키마 레이어 (LLM 레이어의 기반)~~ (완료, 커밋 83b342b)
+9. 다이내믹 EQ(밴드별 레벨 의존 게인) + DF1 통일 + UI 어포던스 퀵윈 —
+   구현 완료, **커밋 대기** (working tree, 2026-07)
+10. Saturator + Oversampling — 다음 제품 (앨리어싱 확인 및 제거)
+11. 자연어 EQ 레이어 — 별도 설계 세션 필요
