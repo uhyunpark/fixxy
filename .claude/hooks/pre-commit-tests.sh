@@ -18,9 +18,10 @@ BUILD_DIR="$PROJECT_DIR/build"
 
 BAND_RESPONSE_TEST="$BUILD_DIR/BandResponseTest"
 MATCHED_KERNEL_TEST="$BUILD_DIR/MatchedKernelTest"
-ANALYZER_ENGINE_TEST="$BUILD_DIR/AnalyzerEngineTest_artefacts/AnalyzerEngineTest"
+ANALYZER_ENGINE_TEST="$BUILD_DIR/AnalyzerEngineTest_artefacts/Debug/AnalyzerEngineTest"
 COMPRESSOR_NODE_TEST="$BUILD_DIR/CompressorNodeTest"
 DYNAMIC_EQ_TEST="$BUILD_DIR/DynamicEqTest"
+COMP_UI_MAP_TEST="$BUILD_DIR/CompUiMapTest"
 
 fail=0
 
@@ -48,6 +49,13 @@ fi
 if [ -x "$DYNAMIC_EQ_TEST" ]; then
   if ! "$DYNAMIC_EQ_TEST" >/dev/null 2>&1; then
     echo "pre-commit hook: DynamicEqTest FAILED" >&2
+    fail=1
+  fi
+fi
+
+if [ -x "$COMP_UI_MAP_TEST" ]; then
+  if ! "$COMP_UI_MAP_TEST" >/dev/null 2>&1; then
+    echo "pre-commit hook: CompUiMapTest FAILED" >&2
     fail=1
   fi
 fi

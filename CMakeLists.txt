@@ -88,6 +88,13 @@ lpng_add_plugin(
     PLUGIN_CODE Lpcm
     SOURCES
         src/plugins/comp/PluginProcessor.cpp
+        src/plugins/LpngLookAndFeel.h
+        src/plugins/comp/ui/CompMeterMap.h
+        src/plugins/comp/ui/CompCurveMap.h
+        src/plugins/comp/ui/LevelMeter.h
+        src/plugins/comp/ui/GrMeter.h
+        src/plugins/comp/ui/TransferCurveView.h
+        src/plugins/comp/ui/CompEditor.h
         src/dsp/CompressorNode.h
 )
 
@@ -140,6 +147,17 @@ add_executable(ParamSchemaTest test/param_schema_test.cpp)
 target_include_directories(ParamSchemaTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_compile_features(ParamSchemaTest PRIVATE cxx_std_20)
 set_source_files_properties(test/param_schema_test.cpp PROPERTIES
+    COMPILE_OPTIONS "-Wall;-Wextra;-Wconversion;-Wshadow")
+
+# Offline unit test: LpngComp editor UI math — meter scale mappers (GR
+# magnitude vs dBFS level, the analyzer lesson applied to meters), transfer-
+# curve CompCurveMap round-trips, and CompressorNode::staticCurve refactor
+# equivalence. Plain C++, no JUCE — the mapped headers are deliberately
+# JUCE-free.
+add_executable(CompUiMapTest test/comp_ui_map_test.cpp)
+target_include_directories(CompUiMapTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_features(CompUiMapTest PRIVATE cxx_std_20)
+set_source_files_properties(test/comp_ui_map_test.cpp PROPERTIES
     COMPILE_OPTIONS "-Wall;-Wextra;-Wconversion;-Wshadow")
 
 juce_add_console_app(AnalyzerEngineTest PRODUCT_NAME "AnalyzerEngineTest")

@@ -3,6 +3,7 @@
 #include <cmath>
 
 #include "dsp/CompressorSchema.h"
+#include "plugins/comp/ui/CompEditor.h"
 
 #if JUCE_DEBUG
 namespace {
@@ -42,6 +43,19 @@ void verifyCompressorSchemaAgainstApvts(juce::AudioProcessorValueTreeState& apvt
 }
 }  // namespace
 #endif
+
+namespace {
+// Block max |sample| across all channels, converted to dBFS. -100 dB is the
+// published floor for a silent (all-zero) block, since 20*log10(0) is -inf
+// and a meter has no use for an unbounded value. Bounded double pass over
+// the buffer, no allocation — safe to call from processBlock.
+float blockPeakDb(const juce::AudioBuffer<float>& buffer) {
+    float peak = 0.0f;
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        peak = std::max(peak, buffer.getMagnitude(ch, 0, buffer.getNumSamples()));
+    return juce::Decibels::gainToDecibels(peak, -100.0f);
+}
+}  // namespace
 
 CompProcessor::CompProcessor()
     : AudioProcessor(BusesProperties()
@@ -138,6 +152,8 @@ void CompProcessor::prepareToPlay(double sampleRate, int samplesPerBlock) {
 
     comp.prepare(sampleRate, samplesPerBlock, getTotalNumOutputChannels());
 
+    publishedSampleRate.store(sampleRate, std::memory_order_relaxed);
+
     const double ramp = 0.02;  // 20 ms, mirrors the EQ boundary smoothing
     thresholdSmoother.reset(sampleRate, ramp);
     ratioSmoother.reset(sampleRate, ramp);
@@ -209,15 +225,23 @@ void CompProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
     p.rmsMode = rmsParam->load() > 0.5f;
     comp.setParams(p);
 
+    // Input peak BEFORE the node touches the buffer.
+    inputPeakDb.store(blockPeakDb(buffer), std::memory_order_relaxed);
+
     comp.process(buffer.getArrayOfWritePointers(), buffer.getNumChannels(), numSamples);
 
-    // Publish the block's worst GR for the meter (plain double read from the
-    // node, stored to the atomic here — dsp/ stays atomic-free).
+    // Output peak AFTER the node processes.
+    outputPeakDb.store(blockPeakDb(buffer), std::memory_order_relaxed);
+
+    // Publish the block's worst GR + detector level for the editor (plain
+    // double reads from the node, stored to atomics here — dsp/ stays
+    // atomic-free). Two relaxed stores, no allocation/locks/IO.
     gainReductionDb.store(static_cast<float>(comp.getMaxGrDb()), std::memory_order_relaxed);
+    scLevelDb.store(static_cast<float>(comp.getLastScDb()), std::memory_order_relaxed);
 }
 
 juce::AudioProcessorEditor* CompProcessor::createEditor() {
-    return new juce::GenericAudioProcessorEditor(*this);
+    return new CompEditor(*this);
 }
 
 void CompProcessor::getStateInformation(juce::MemoryBlock& destData) {

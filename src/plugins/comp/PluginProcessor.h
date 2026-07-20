@@ -50,6 +50,31 @@ public:
     // future meter. Atomic so the message-thread reader needs no lock.
     std::atomic<float> gainReductionDb{0.0f};
 
+    // Input/output peak level (dBFS, block max |sample| across all channels),
+    // published each block for future input/output meters. -100 dB is the
+    // floor used for silent (zero) blocks, since dB(0) is -inf. Same
+    // cross-thread publish pattern as gainReductionDb.
+    std::atomic<float> inputPeakDb{-100.0f};
+    std::atomic<float> outputPeakDb{-100.0f};
+
+    // Block-max detector level x_L (dB, post SC-HPF/RMS conditioning) — where
+    // the signal sits on the static curve's input axis. Feeds the editor's live
+    // IO dot at (x_L, staticCurve(x_L)). -120 dB is the detector's own log
+    // floor. Same publish pattern as gainReductionDb.
+    std::atomic<float> scLevelDb{-120.0f};
+
+    // Sample rate mirrored from prepareToPlay for the UI thread (trace
+    // displays later) — mirrors the EQ plugin's publishedSampleRate pattern.
+    std::atomic<double> publishedSampleRate{0.0};
+
+    float getGainReductionDb() const { return gainReductionDb.load(std::memory_order_relaxed); }
+    float getScLevelDb() const { return scLevelDb.load(std::memory_order_relaxed); }
+    float getInputPeakDb() const { return inputPeakDb.load(std::memory_order_relaxed); }
+    float getOutputPeakDb() const { return outputPeakDb.load(std::memory_order_relaxed); }
+    double getPublishedSampleRate() const {
+        return publishedSampleRate.load(std::memory_order_relaxed);
+    }
+
 private:
     // Continuous params smoothed at the plugin boundary (mirrors the EQ pattern)
     // so the DSP node stays a pure JUCE-free kernel. The param->coeff map (exp,

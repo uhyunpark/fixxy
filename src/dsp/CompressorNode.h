@@ -148,6 +148,7 @@ public:
             s = 0.0;
         holdCounter = 0;
         maxGrDb = 0.0;
+        lastScDb = -120.0;
     }
 
     /** Set parameters and recompute all coefficients. Contains the exp()/tan()
@@ -207,11 +208,38 @@ public:
 
     const Params& getParams() const { return params; }
 
+    /** PURE static gain-computer transfer curve y_G(inDb) — the quadratic
+        soft-knee three-segment curve, parameterized explicitly so the UI can
+        evaluate it from APVTS values WITHOUT touching the audio-thread node
+        instance (single source, race-free — the member gainComputer() below
+        delegates here, so the drawn curve and the running kernel share one
+        formula by construction). kneeDb is the FULL knee width W. */
+    static double staticCurve(double inDb, double thresholdDb, double ratio, double kneeDb) {
+        const double twoDelta = 2.0 * (inDb - thresholdDb);
+        if (twoDelta < -kneeDb)
+            return inDb;  // below knee: unity
+        if (twoDelta > kneeDb)
+            return thresholdDb + (inDb - thresholdDb) / ratio;  // above knee
+        // Inside the knee. Guard against W ~ 0 (hard knee): with W tiny the knee
+        // region is a single point; fall back to the compressed line to avoid /0.
+        if (kneeDb <= 0.01)
+            return (inDb > thresholdDb) ? (thresholdDb + (inDb - thresholdDb) / ratio) : inDb;
+        const double d = inDb - thresholdDb + kneeDb / 2.0;
+        return inDb + (1.0 / ratio - 1.0) * d * d / (2.0 * kneeDb);
+    }
+
     /** The static gain-computer transfer curve y_G(inputDb) for the current
         params, in dB — the compressed output level a steady input at inputDb
         settles to (ignoring makeup/ballistics). Exposed for the verification
         harness and a future UI curve display; pure double-precision math. */
     double staticCurveDb(double inputDb) const { return gainComputer(inputDb); }
+
+    /** The current block's maximum DETECTOR level x_L in dB (post SC-HPF/RMS,
+        pre gain computer) — where the signal currently sits on the static-curve
+        x axis, for the UI's live IO dot. Same plain-member pattern as
+        getMaxGrDb(): read AFTER process(); the PLUGIN owns the atomic publish.
+        Floor is the detector's own log guard (-120 dB peak / -120 dB RMS). */
+    double getLastScDb() const { return lastScDb; }
 
     /** The current block's maximum gain-reduction magnitude in dB (>= 0). A plain
         member the caller reads AFTER process(); dsp/ stays atomic-free. The PLUGIN
@@ -226,6 +254,7 @@ public:
         const double makeup = autoMakeup ? autoMakeupDb : makeupDb;
 
         double blockMaxGr = 0.0;
+        double blockMaxSc = -120.0;
 
         for (int i = 0; i < numSamples; ++i) {
             // 1) Sidechain level: max-abs across channels (single detector).
@@ -256,6 +285,7 @@ public:
             } else {
                 xL = 20.0 * std::log10(sc > 1e-6 ? sc : 1e-6);
             }
+            if (xL > blockMaxSc) blockMaxSc = xL;  // for getLastScDb (UI IO dot)
 
             // 4) Gain computer -> control signal c <= 0 -> GR demand e = -c >= 0.
             const double yG = gainComputer(xL);
@@ -288,6 +318,7 @@ public:
         }
 
         maxGrDb = blockMaxGr;
+        lastScDb = blockMaxSc;
     }
 
 private:
@@ -321,20 +352,9 @@ private:
           |x-T|<=W/2 : y = x + (1/R-1)*(x-T+W/2)^2 / (2W)          (knee)
           x > T+W/2  : y = T + (x-T)/R                             (compressed)
         W <= 0.01 collapses the knee to a hard corner (matches proto W>0 guard;
-        the proto's tests use W=0 for hard knee). */
-    double gainComputer(double x) const {
-        const double twoDelta = 2.0 * (x - T);
-        if (twoDelta < -W)
-            return x;              // below knee
-        if (twoDelta > W)
-            return T + (x - T) / R;  // above knee
-        // Inside the knee. Guard against W ~ 0 (hard knee): with W tiny the knee
-        // region is a single point; fall back to the compressed line to avoid /0.
-        if (W <= 0.01)
-            return (x > T) ? (T + (x - T) / R) : x;
-        const double d = x - T + W / 2.0;
-        return x + (1.0 / R - 1.0) * d * d / (2.0 * W);
-    }
+        the proto's tests use W=0 for hard knee). Delegates to the public static
+        staticCurve() — the formula lives in exactly one place (see above). */
+    double gainComputer(double x) const { return staticCurve(x, T, R, W); }
 
     /** Ballistics on the GR-demand signal e >= 0. Either the shipped
         smooth_decoupled_rtt peak detector, or the program-dependent dual-pole
@@ -450,5 +470,6 @@ private:
     int holdCounter = 0;  // samples remaining in the hold freeze
     std::array<double, 2> scHpfState{};  // two cascaded one-pole HPF states
 
-    double maxGrDb = 0.0;  // published per block (read post-process)
+    double maxGrDb = 0.0;    // published per block (read post-process)
+    double lastScDb = -120.0;  // block-max detector level x_L (read post-process)
 };
