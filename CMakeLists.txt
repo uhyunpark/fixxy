@@ -98,6 +98,16 @@ lpng_add_plugin(
         src/dsp/CompressorNode.h
 )
 
+lpng_add_plugin(
+    TARGET Spectral
+    PRODUCT_NAME "LpngSpectral"
+    PLUGIN_CODE Lpsp
+    SOURCES
+        src/plugins/spectral/PluginProcessor.cpp
+        src/dsp/SpectralNode.h
+        src/dsp/SpectralFft.h
+)
+
 # Offline unit test: BandResponse.h's analytic curve vs. the actual SvfBandNode
 # kernel (impulse + DFT). Deliberately plain C++, no JUCE — kept out of the
 # plugin target so it builds fast and can't drag JUCE headers into scope.
@@ -158,6 +168,18 @@ add_executable(CompUiMapTest test/comp_ui_map_test.cpp)
 target_include_directories(CompUiMapTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_compile_features(CompUiMapTest PRIVATE cxx_std_20)
 set_source_files_properties(test/comp_ui_map_test.cpp PROPERTIES
+    COMPILE_OPTIONS "-Wall;-Wextra;-Wconversion;-Wshadow")
+
+# Offline unit test: SpectralNode / SpectralFft (hand-rolled radix-2 real FFT +
+# streaming STFT + envelope/exceed/tanh-knee/octave-smooth/ballistics gain map)
+# vs. proto-generated fixtures (test/spectral_fixtures.h from
+# proto/dump_spectral_fixtures.py). FFT round-trip/forward, latency==N,
+# chunk-size invariance, depth=0 passthrough, full-chain reproduction, stereo
+# link. Plain C++, no JUCE — same rationale as above.
+add_executable(SpectralNodeTest test/spectral_node_test.cpp)
+target_include_directories(SpectralNodeTest PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/test)
+target_compile_features(SpectralNodeTest PRIVATE cxx_std_20)
+set_source_files_properties(test/spectral_node_test.cpp PROPERTIES
     COMPILE_OPTIONS "-Wall;-Wextra;-Wconversion;-Wshadow")
 
 juce_add_console_app(AnalyzerEngineTest PRODUCT_NAME "AnalyzerEngineTest")

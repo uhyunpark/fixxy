@@ -22,6 +22,7 @@ ANALYZER_ENGINE_TEST="$BUILD_DIR/AnalyzerEngineTest_artefacts/Debug/AnalyzerEngi
 COMPRESSOR_NODE_TEST="$BUILD_DIR/CompressorNodeTest"
 DYNAMIC_EQ_TEST="$BUILD_DIR/DynamicEqTest"
 COMP_UI_MAP_TEST="$BUILD_DIR/CompUiMapTest"
+SPECTRAL_NODE_TEST="$BUILD_DIR/SpectralNodeTest"
 
 fail=0
 
@@ -56,6 +57,13 @@ fi
 if [ -x "$COMP_UI_MAP_TEST" ]; then
   if ! "$COMP_UI_MAP_TEST" >/dev/null 2>&1; then
     echo "pre-commit hook: CompUiMapTest FAILED" >&2
+    fail=1
+  fi
+fi
+
+if [ -x "$SPECTRAL_NODE_TEST" ]; then
+  if ! "$SPECTRAL_NODE_TEST" >/dev/null 2>&1; then
+    echo "pre-commit hook: SpectralNodeTest FAILED" >&2
     fail=1
   fi
 fi

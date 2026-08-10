@@ -22,6 +22,8 @@
 #include "dsp/CompressorNode.h"
 #include "dsp/CompressorSchema.h"
 #include "dsp/EqSchema.h"
+#include "dsp/SpectralNode.h"
+#include "dsp/SpectralSchema.h"
 #include "dsp/SvfBandNode.h"
 
 namespace {
@@ -252,15 +254,71 @@ void verifyEqSchema() {
           eqschema::bandParamId("band<N>Freq", 3) == "band3Freq", "");
 }
 
+// ============================================================
+// Spectral: schema vs. an independently transcribed copy of
+// PluginProcessor.cpp's createParameterLayout(), and vs. SpectralNode's own
+// Params defaults (they must agree — the plugin passes them straight
+// through with the same numeric defaults).
+// ============================================================
+void verifySpectralSchema() {
+    const auto schema = spectralschema::spectralSchema();
+
+    struct Expected {
+        const char* id;
+        double min, max, defaultVal;
+    };
+    // Transcribed independently from src/plugins/spectral/PluginProcessor.cpp.
+    const Expected expected[] = {
+        {"depth", 0.0, 10.0, 5.0},
+        {"detail", 0.0, 10.0, 5.0},
+        {"attack", 1.0, 250.0, 27.0},
+        {"release", 5.0, 1000.0, 50.0},
+        {"mix", 0.0, 100.0, 100.0},
+        {"output", -24.0, 12.0, 0.0},
+    };
+
+    check("spectral", "schema has exactly 6 params", schema.size() == 6,
+          ("count=" + std::to_string(schema.size())).c_str());
+
+    for (const auto& e : expected) {
+        const auto* d = find(schema, e.id);
+        std::string tag = std::string("spectral.") + e.id;
+        if (d == nullptr) {
+            check("spectral", tag.c_str(), false, "missing from schema");
+            continue;
+        }
+        check("spectral", (tag + ".min").c_str(), nearlyEqual(d->min, e.min), "vs APVTS layout");
+        check("spectral", (tag + ".max").c_str(), nearlyEqual(d->max, e.max), "vs APVTS layout");
+        check("spectral", (tag + ".default").c_str(), nearlyEqual(d->defaultVal, e.defaultVal),
+              "vs APVTS layout");
+        check("spectral", (tag + ".type").c_str(), d->type == paramschema::ParamType::Float,
+              "vs APVTS layout");
+    }
+
+    // Cross-check against SpectralNode::Params defaults directly.
+    const SpectralNode::Params defaults{};
+    check("spectral", "node depth default matches schema",
+          nearlyEqual(find(schema, "depth")->defaultVal, defaults.depth), "");
+    check("spectral", "node detail default matches schema",
+          nearlyEqual(find(schema, "detail")->defaultVal, defaults.detail), "");
+    check("spectral", "node attack default matches schema",
+          nearlyEqual(find(schema, "attack")->defaultVal, defaults.attackMs), "");
+    check("spectral", "node release default matches schema",
+          nearlyEqual(find(schema, "release")->defaultVal, defaults.releaseMs), "");
+}
+
 }  // namespace
 
 int main() {
     verifyCompressorSchema();
     verifyEqSchema();
+    verifySpectralSchema();
 
     std::printf("\n=== compressor schema JSON ===\n%s\n",
                 compressorschema::compressorSchemaJson().c_str());
     std::printf("\n=== eq schema JSON ===\n%s\n", eqschema::eqSchemaJson().c_str());
+    std::printf("\n=== spectral schema JSON ===\n%s\n",
+                spectralschema::spectralSchemaJson().c_str());
 
     std::printf("\n%s\n", gAllPass ? "ALL PARAM SCHEMA CHECKS PASSED" : "PARAM SCHEMA CHECKS FAILED");
     return gAllPass ? 0 : 1;
