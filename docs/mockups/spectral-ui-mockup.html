@@ -1,0 +1,695 @@
+<title>Lpng Spectral — UI Skin Study</title>
+<style>
+  :root {
+    --page-bg: #202024;
+    --page-panel: #17171a;
+    --page-fg: #d7d7db;
+    --page-fg-dim: #8c8c94;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --cond: "Arial Narrow", "Helvetica Neue Condensed", "Roboto Condensed", var(--sans);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--page-bg);
+    color: var(--page-fg);
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.5;
+    padding: 48px 24px 96px;
+  }
+
+  .wrap { max-width: 1064px; margin: 0 auto; }
+
+  /* ---- page header ---- */
+  .page-title {
+    font-family: var(--cond);
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    font-size: 30px;
+    margin: 0 0 4px;
+    color: #f3f3f6;
+  }
+  .page-eyebrow {
+    font-size: 11px; letter-spacing: 0.28em; text-transform: uppercase;
+    color: var(--page-fg-dim); margin: 0 0 18px;
+  }
+  .page-intro {
+    max-width: 760px; font-size: 14.5px; color: var(--page-fg);
+    margin: 0 0 8px;
+  }
+  .page-note { max-width: 760px; font-size: 12.5px; color: var(--page-fg-dim); margin: 0 0 40px; }
+  .page-note code { font-family: var(--mono); font-size: 11.5px; color: #b9b9c2; }
+
+  .mock-block { margin-bottom: 56px; }
+  .mock-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 14px; }
+  .mock-head h2 { font-size: 15px; margin: 0; color: #f3f3f6; font-weight: 650; }
+  .mock-head .tag { font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--page-fg-dim); }
+
+  /* ================= MOCKUP FRAME ================= */
+  .mockup {
+    width: 1000px; max-width: 100%; height: 640px;
+    border-radius: 12px; overflow: hidden;
+    display: flex; flex-direction: column;
+    font-family: var(--ui-font);
+    user-select: none;
+    position: relative;
+  }
+  /* scale down gracefully on narrow screens */
+  @media (max-width: 1040px) {
+    .mockup { transform-origin: top left; }
+  }
+
+  /* ---------- DARK variant tokens (LpngLookAndFeel) ---------- */
+  .mockup.dark {
+    --ui-font: var(--sans);
+    --value-font: var(--mono);
+    --value-feat: normal;
+    --win: #141417; --panel: #1c1c21; --well: #1a1a1e;
+    --grid-minor: #28282e; --grid-major: #3a3a40; --axis: #45454e; --tick: #5a5a62;
+    --t-prim: #e6e6ea; --t-sec: #9a9aa4; --t-mut: #707078; --t-faint: #606068;
+    --chip-bg: #212127; --chip-border: #34343c; --chip-fg: #e6e6ea;
+    --rail-bg: #1c1c21; --rail-border: #26262c;
+    --pill-track: #26262c; --pill-fg-off: #8a8a92; --pill-on-bg: #33333b; --pill-on-fg: #ececf0;
+    --knob-face: #202026; --knob-face-edge: #2c2c34; --knob-track: #3a3a40;
+    --knob-value: #6fa8d6; --knob-pointer: #e6e6ea;
+    --hero-value: #6fa8d6;
+    --divider: #26262c;
+    /* data / plot */
+    --sig-fill: rgba(143,208,255,0.13); --sig-line: #8fd0ff; --sig-pre: #6b7a90;
+    --curve: #f2f4f8; --reduce: rgba(224,120,60,0.55); --reduce-line: #e0783c;
+    --handle: #e0783c; --handle-glow: rgba(224,120,60,0.35);
+    --node: #8fd0ff; --node-ring: #141417;
+    --plot-grid: #26262c; --plot-grid-maj: #34343c; --plot-axis-text: #707078;
+    --well-border: rgba(255,255,255,0.03);
+    --btn-ring: #4a4a52; --dot-on: #e0783c; --dot-off: #3a3a40;
+    --dropdown-bg: #212127; --dropdown-border: #34343c;
+  }
+
+  /* ---------- LIGHT variant tokens (design-reference.md) ---------- */
+  .mockup.light {
+    --ui-font: var(--sans);
+    --value-font: var(--sans);
+    --value-feat: "tnum" 1, "lnum" 1; /* tabular figures stand in for the mono signature */
+    --win: #fbfaf9; --panel: #f2f0ed; --well: #ffffff;
+    --grid-minor: #efece8; --grid-major: #e3ded7; --axis: #ded7ce; --tick: #cfc7bc;
+    --t-prim: #121212; --t-sec: #474645; --t-mut: #7e7e7d; --t-faint: #9a9793;
+    --chip-bg: #f6f4ef; --chip-border: #ece7e0; --chip-fg: #121212;
+    --rail-bg: #f2f0ed; --rail-border: #e7e2db;
+    --pill-track: #e7e2db; --pill-fg-off: #7e7e7d; --pill-on-bg: #121212; --pill-on-fg: #fbfaf9;
+    --knob-face: #ffffff; --knob-face-edge: #ece7e0; --knob-track: #e3ded7;
+    --knob-value: #0b61c4; --knob-pointer: #121212;
+    --hero-value: #0b61c4;
+    --divider: #e7e2db;
+    /* data / plot — designed for the paper canvas (darker, saturated) */
+    --sig-fill: rgba(11,97,196,0.11); --sig-line: #0b61c4; --sig-pre: #6d82a6;
+    --curve: #1b1b1b; --reduce: rgba(255,62,0,0.42); --reduce-line: #ff3e00;
+    --handle: #ff3e00; --handle-glow: rgba(255,62,0,0.22);
+    --node: #0b61c4; --node-ring: #ffffff;
+    --plot-grid: #efece8; --plot-grid-maj: #e3ded7; --plot-axis-text: #9a9793;
+    --well-border: #f2f0ed;
+    --btn-ring: #d8d1c8; --dot-on: #ff3e00; --dot-off: #ded7ce;
+    --dropdown-bg: #ffffff; --dropdown-border: #ece7e0;
+  }
+
+  .mockup { background: var(--win); color: var(--t-sec); }
+
+  /* ---------- top bar ---------- */
+  .topbar {
+    height: 46px; flex: 0 0 46px;
+    display: flex; align-items: center; gap: 10px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--divider);
+  }
+  .brand {
+    display: flex; align-items: baseline; gap: 7px; margin-right: 6px;
+  }
+  .brand .mark {
+    font-weight: 800; font-size: 15px; letter-spacing: -0.01em; color: var(--t-prim);
+  }
+  .mockup.light .brand .mark {
+    font-family: var(--cond); text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  .brand .ver { font-size: 10px; color: var(--t-mut); }
+
+  .preset-nav {
+    display: flex; align-items: center; gap: 6px; margin-left: 8px;
+  }
+  .icon-btn {
+    width: 24px; height: 24px; border-radius: 6px;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: var(--t-mut); border: 1px solid transparent;
+    font-size: 13px;
+  }
+  .icon-btn:hover { color: var(--t-prim); border-color: var(--btn-ring); }
+  .preset-name {
+    display: flex; align-items: center; gap: 8px;
+    min-width: 190px; height: 26px; padding: 0 12px;
+    background: var(--chip-bg); border: 1px solid var(--chip-border);
+    border-radius: 7px; color: var(--t-prim); font-size: 12.5px;
+  }
+  .preset-name .pin { color: var(--t-mut); font-size: 11px; margin-left: auto; }
+  .spacer { flex: 1; }
+
+  .ab-group { display: flex; gap: 4px; align-items: center; }
+  .ab {
+    width: 26px; height: 26px; border-radius: 999px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 600;
+    border: 1px solid var(--btn-ring); color: var(--t-sec); background: transparent;
+  }
+  .ab.on { background: var(--pill-on-bg); color: var(--pill-on-fg); border-color: var(--pill-on-bg); }
+  .ab.arrow { width: auto; padding: 0 9px; border-radius: 8px; font-weight: 500; font-size: 11px; }
+
+  /* ---------- body ---------- */
+  .body { flex: 1; display: flex; min-height: 0; }
+
+  /* ---------- left rail ---------- */
+  .rail {
+    width: 208px; flex: 0 0 208px;
+    background: var(--rail-bg); border-right: 1px solid var(--rail-border);
+    padding: 16px 18px; display: flex; flex-direction: column;
+  }
+
+  .pill-toggle {
+    display: inline-flex; align-self: flex-start; padding: 3px;
+    background: var(--pill-track); border-radius: 999px; margin-bottom: 22px;
+  }
+  .pill-toggle span {
+    padding: 4px 15px; border-radius: 999px; font-size: 12px; color: var(--pill-fg-off);
+  }
+  .pill-toggle span.on { background: var(--pill-on-bg); color: var(--pill-on-fg); font-weight: 600; }
+
+  .knob-label {
+    font-size: 11.5px; letter-spacing: 0.02em; color: var(--t-sec);
+    text-align: center; margin-bottom: 8px;
+  }
+  .mockup.light .knob-label { color: var(--t-sec); }
+
+  .hero-wrap { text-align: center; margin-bottom: 8px; }
+  .hero-label {
+    font-size: 12.5px; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--t-prim); margin-bottom: 10px; font-weight: 600;
+  }
+
+  .knob { display: block; margin: 0 auto; transition: transform 120ms ease; }
+  .knob:hover { transform: scale(1.03); }
+  .knob-face-c { fill: var(--knob-face); stroke: var(--knob-face-edge); stroke-width: 1.4; }
+  .knob-track-a { fill: none; stroke: var(--knob-track); stroke-width: 7; stroke-linecap: round; }
+  .knob-value-a { fill: none; stroke: var(--knob-value); stroke-width: 7; stroke-linecap: round; transition: stroke-width 120ms ease; }
+  .knob:hover .knob-value-a { stroke-width: 8; }
+  .knob-value-hero { stroke: var(--hero-value); }
+  .knob-pointer-l { stroke: var(--knob-pointer); stroke-width: 3.2; stroke-linecap: round; }
+
+  .chip {
+    display: inline-block; min-width: 52px; text-align: center;
+    padding: 3px 10px; margin-top: 9px;
+    background: var(--chip-bg); border: 1px solid var(--chip-border); border-radius: 4px;
+    font-family: var(--value-font); font-feature-settings: var(--value-feat);
+    font-size: 12.5px; color: var(--chip-fg); letter-spacing: 0.01em;
+  }
+  .mockup.light .chip { border-radius: 4px; }
+
+  .small-knobs { display: flex; justify-content: space-between; gap: 12px; margin-top: 6px; }
+  .knob-cell { text-align: center; flex: 1; }
+  .rail-gap { height: 20px; }
+  .rail-spacer { flex: 1; }
+
+  /* ---------- display column ---------- */
+  .display-col { flex: 1; display: flex; min-width: 0; }
+
+  .side-tabs {
+    width: 34px; flex: 0 0 34px;
+    display: flex; flex-direction: column; justify-content: space-around;
+    align-items: center;
+    background: var(--win); border-right: 1px solid var(--divider);
+    padding: 20px 0;
+  }
+  .side-tab {
+    display: flex; flex-direction: column-reverse; align-items: center; gap: 8px;
+    color: var(--t-mut); cursor: default;
+  }
+  .side-tab:hover { color: var(--t-sec); }
+  .side-tab .lbl {
+    writing-mode: vertical-rl; transform: rotate(180deg);
+    font-size: 11px; letter-spacing: 0.08em;
+  }
+  .side-tab .dot { width: 6px; height: 6px; border-radius: 999px; background: var(--dot-off); }
+  .side-tab.changed .dot { background: var(--dot-on); }
+  .side-tab.changed .lbl { color: var(--t-sec); }
+
+  .plot-area {
+    flex: 1; padding: 8px 10px 8px 8px; min-width: 0;
+    display: flex; flex-direction: column;
+  }
+  .plot-well {
+    flex: 1; position: relative;
+    background: var(--well); border-radius: 6px;
+    box-shadow: inset 0 0 0 1px var(--well-border);
+    overflow: hidden;
+  }
+  .plot-svg { display: block; width: 100%; height: 100%; }
+
+  .grid-line { stroke: var(--plot-grid); stroke-width: 1; }
+  .grid-line.maj { stroke: var(--plot-grid-maj); }
+  .axis-text { fill: var(--plot-axis-text); font-size: 11px; font-family: var(--ui-font); }
+  .axis-text.db { font-family: var(--value-font); font-feature-settings: var(--value-feat); }
+
+  .spec-fill { fill: var(--sig-fill); }
+  .spec-line { fill: none; stroke: var(--sig-line); stroke-width: 1.6; stroke-linejoin: round; }
+  .spec-pre  { fill: none; stroke: var(--sig-pre); stroke-width: 1.2; stroke-dasharray: 1 3; stroke-linecap: round; opacity: 0.85; }
+  .reduce-fill { fill: var(--reduce); }
+  .curve-line { fill: none; stroke: var(--curve); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+
+  .handle rect { fill: var(--handle); }
+  .handle circle.glow { fill: var(--handle-glow); opacity: 0; transition: opacity 120ms ease; }
+  .handle:hover circle.glow { opacity: 1; }
+  .node { transition: r 120ms ease; }
+  .node circle.core { fill: var(--node); stroke: var(--node-ring); stroke-width: 2.5; }
+  .node circle.hit { fill: transparent; }
+  .node:hover circle.core { stroke-width: 3.2; }
+
+  /* ---------- utility bar ---------- */
+  .utilbar {
+    height: 46px; flex: 0 0 46px;
+    display: flex; align-items: center; gap: 18px;
+    padding: 0 14px;
+    border-top: 1px solid var(--divider);
+    font-size: 12px;
+  }
+  .util-toggle { display: inline-flex; align-items: center; gap: 7px; color: var(--t-sec); }
+  .util-toggle .ring {
+    width: 13px; height: 13px; border-radius: 999px;
+    border: 1.5px solid var(--btn-ring);
+  }
+  .util-field { display: inline-flex; align-items: center; gap: 8px; color: var(--t-sec); }
+  .util-field .val {
+    padding: 3px 10px; background: var(--chip-bg); border: 1px solid var(--chip-border);
+    border-radius: 4px; font-family: var(--value-font); font-feature-settings: var(--value-feat);
+    color: var(--chip-fg); font-size: 12px; min-width: 56px; text-align: center;
+  }
+  .util-spacer { flex: 1; }
+  .dropdown {
+    display: inline-flex; align-items: center; gap: 20px;
+    padding: 4px 10px; background: var(--dropdown-bg);
+    border: 1px solid var(--dropdown-border); border-radius: 6px;
+    color: var(--t-prim); font-size: 12px;
+  }
+  .dropdown .caret { color: var(--t-mut); font-size: 9px; }
+  .ll-pill {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 4px 11px; border-radius: 999px;
+    border: 1px solid var(--btn-ring); color: var(--t-sec);
+  }
+  .lock { color: var(--t-mut); font-size: 11px; }
+
+  /* ---------- caption ---------- */
+  .caption {
+    max-width: 1000px; margin-top: 16px;
+    background: var(--page-panel); border: 1px solid #2a2a30; border-radius: 10px;
+    padding: 16px 20px;
+  }
+  .caption h3 { margin: 0 0 10px; font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--page-fg-dim); font-weight: 600; }
+  .caption ol { margin: 0; padding-left: 20px; }
+  .caption li { font-size: 13.5px; color: var(--page-fg); margin-bottom: 7px; }
+  .caption li:last-child { margin-bottom: 0; }
+  .caption b { color: #f0f0f4; font-weight: 600; }
+  .swatch {
+    display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+    vertical-align: middle; margin: 0 3px 2px; border: 1px solid rgba(255,255,255,0.15);
+  }
+</style>
+
+<div class="wrap">
+  <p class="page-eyebrow">Skin Study · Spectral Processor</p>
+  <h1 class="page-title">Lpng Spectral — 두 가지 스킨</h1>
+  <p class="page-intro">
+    같은 레이아웃 위에 두 개의 시각 언어를 얹었다. 위는 우리 플러그인 패밀리의 기존 언어인
+    <b>Family Dark</b>(LpngLookAndFeel: 어둡고 평평한 크롬, 쿨 블루=신호 / 앰버=동작, 모노스페이스 수치),
+    아래는 <code>design-reference.md</code>의 <b>Family Light</b>(크림 종이 캔버스, 그림자 대신 헤어라인 인셋,
+    엠버 오렌지 액션 액센트)다. 던지는 질문은 하나다:
+    <b>이 신규 플러그인에서 라이트 언어를 데뷔시킬 것인가</b> — 아니면 계측기다움(다크)을 지킬 것인가.
+  </p>
+  <p class="page-note">
+    폰트는 자체 포함을 위해 외부 로딩 없이 시스템 스택으로 근사했다: Inter → 시스템 산세리프,
+    Family 디스플레이(Druk Wide/GT America Compressed) → <code>Arial Narrow</code> 계열 압축 볼드,
+    다크 수치 모노스페이스 → 시스템 모노. 라이트 변형의 수치는 모노 대신 <code>tabular-nums</code>로 정렬한다.
+  </p>
+
+  <!-- ======================= VARIANT A: DARK ======================= -->
+  <div class="mock-block">
+    <div class="mock-head">
+      <h2>Variant A — Family Dark</h2>
+      <span class="tag">LpngLookAndFeel</span>
+    </div>
+
+    <div class="mockup dark">
+      <!-- top bar -->
+      <div class="topbar">
+        <div class="brand"><span class="mark">Lpng Spectral</span><span class="ver">1.0</span></div>
+        <div class="preset-nav">
+          <span class="icon-btn">‹</span>
+          <span class="icon-btn">›</span>
+          <span class="preset-name">Factory default <span class="pin">📌</span></span>
+        </div>
+        <div class="spacer"></div>
+        <div class="ab-group">
+          <span class="ab on">A</span>
+          <span class="ab">B</span>
+          <span class="ab arrow">A → B</span>
+        </div>
+        <span class="icon-btn">?</span>
+        <span class="icon-btn">⚙</span>
+      </div>
+
+      <!-- body -->
+      <div class="body">
+        <!-- left rail -->
+        <div class="rail">
+          <div class="pill-toggle"><span class="on">soft</span><span>hard</span></div>
+
+          <div class="hero-wrap">
+            <div class="hero-label">Depth</div>
+            <svg class="knob" width="92" height="92" viewBox="0 0 100 100" aria-hidden="true">
+              <path class="knob-track-a" d="M23.13,76.87 A38,38 0 1 1 76.87,76.87"/>
+              <path class="knob-value-a knob-value-hero" d="M23.13,76.87 A38,38 0 0 1 50,12"/>
+              <circle class="knob-face-c" cx="50" cy="50" r="30"/>
+              <line class="knob-pointer-l" x1="50" y1="34" x2="50" y2="18"/>
+            </svg>
+            <div><span class="chip">5.0</span></div>
+          </div>
+
+          <div class="rail-gap"></div>
+
+          <div class="knob-cell" style="max-width:120px;margin:0 auto;">
+            <div class="knob-label">detail</div>
+            <svg class="knob" width="52" height="52" viewBox="0 0 100 100" aria-hidden="true">
+              <path class="knob-track-a" d="M23.13,76.87 A38,38 0 1 1 76.87,76.87"/>
+              <path class="knob-value-a" d="M23.13,76.87 A38,38 0 0 1 50,12"/>
+              <circle class="knob-face-c" cx="50" cy="50" r="30"/>
+              <line class="knob-pointer-l" x1="50" y1="34" x2="50" y2="18"/>
+            </svg>
+            <div><span class="chip">5.0</span></div>
+          </div>
+
+          <div class="rail-gap"></div>
+
+          <div class="small-knobs">
+            <div class="knob-cell">
+              <div class="knob-label">attack</div>
+              <svg class="knob" width="50" height="50" viewBox="0 0 100 100" aria-hidden="true">
+                <path class="knob-track-a" d="M23.13,76.87 A38,38 0 1 1 76.87,76.87"/>
+                <path class="knob-value-a" d="M23.13,76.87 A38,38 0 0 1 50,12"/>
+                <circle class="knob-face-c" cx="50" cy="50" r="30"/>
+                <line class="knob-pointer-l" x1="50" y1="34" x2="50" y2="18"/>
+              </svg>
+              <div><span class="chip">5.0</span></div>
+            </div>
+            <div class="knob-cell">
+              <div class="knob-label">release</div>
+              <svg class="knob" width="50" height="50" viewBox="0 0 100 100" aria-hidden="true">
+                <path class="knob-track-a" d="M23.13,76.87 A38,38 0 1 1 76.87,76.87"/>
+                <path class="knob-value-a" d="M23.13,76.87 A38,38 0 0 1 24.11,31.19"/>
+                <circle class="knob-face-c" cx="50" cy="50" r="30"/>
+                <line class="knob-pointer-l" x1="37.06" y1="40.60" x2="24.11" y2="31.19"/>
+              </svg>
+              <div><span class="chip">3.0</span></div>
+            </div>
+          </div>
+
+          <div class="rail-spacer"></div>
+        </div>
+
+        <!-- display -->
+        <div class="display-col">
+          <div class="side-tabs">
+            <div class="side-tab"><span class="lbl">stereo</span><span class="dot"></span></div>
+            <div class="side-tab changed"><span class="lbl">tilt</span><span class="dot"></span></div>
+            <div class="side-tab"><span class="lbl">scale</span><span class="dot"></span></div>
+          </div>
+
+          <div class="plot-area">
+            <div class="plot-well">
+              <svg class="plot-svg" viewBox="0 0 740 330" preserveAspectRatio="none">
+                <!-- grid -->
+                <g>
+                  <line class="grid-line" x1="70"  y1="24" x2="70"  y2="300"/>
+                  <line class="grid-line" x1="160" y1="24" x2="160" y2="300"/>
+                  <line class="grid-line" x1="250" y1="24" x2="250" y2="300"/>
+                  <line class="grid-line maj" x1="345" y1="24" x2="345" y2="300"/>
+                  <line class="grid-line" x1="440" y1="24" x2="440" y2="300"/>
+                  <line class="grid-line" x1="535" y1="24" x2="535" y2="300"/>
+                  <line class="grid-line" x1="625" y1="24" x2="625" y2="300"/>
+                  <line class="grid-line" x1="700" y1="24" x2="700" y2="300"/>
+                  <line class="grid-line" x1="20" y1="150" x2="712" y2="150"/>
+                  <line class="grid-line" x1="20" y1="210" x2="712" y2="210"/>
+                  <line class="grid-line" x1="20" y1="270" x2="712" y2="270"/>
+                </g>
+                <!-- signal spectrum (cool) -->
+                <path class="spec-fill" d="M30,300 L30,235 C90,215 130,250 190,238 C250,225 300,232 350,215 C420,195 470,222 540,208 C600,196 655,220 700,232 L700,300 Z"/>
+                <path class="spec-line" d="M30,235 C90,215 130,250 190,238 C250,225 300,232 350,215 C420,195 470,222 540,208 C600,196 655,220 700,232"/>
+                <path class="spec-pre"  d="M30,244 C90,226 130,256 190,246 C250,234 300,240 350,226 C420,206 470,230 540,216 C600,205 655,228 700,238"/>
+                <!-- reduction ribbon (action / accent) -->
+                <path class="reduce-fill" d="M270,148 C340,146 380,120 440,112 C500,105 560,135 620,165 L620,177 C560,147 500,117 440,124 C380,132 340,158 270,160 Z"/>
+                <!-- weighting curve (near-white sum) -->
+                <path class="curve-line" d="M70,300 C74,180 78,150 110,150 C170,150 210,150 270,148 C340,146 380,120 440,112 C500,105 560,135 620,165 C660,183 685,205 700,235"/>
+                <!-- boundary handles (accent = the action region edges) -->
+                <g class="handle">
+                  <circle class="glow" cx="70" cy="150" r="16"/>
+                  <rect x="65.5" y="132" width="9" height="40" rx="4.5"/>
+                </g>
+                <g class="handle">
+                  <circle class="glow" cx="700" cy="200" r="16"/>
+                  <rect x="695.5" y="182" width="9" height="40" rx="4.5"/>
+                </g>
+                <!-- middle node (cool = signal-tracking) -->
+                <g class="node">
+                  <circle class="hit" cx="440" cy="112" r="14"/>
+                  <circle class="core" cx="440" cy="112" r="7.5"/>
+                </g>
+                <!-- axis labels -->
+                <g>
+                  <text class="axis-text" x="70"  y="18" text-anchor="middle">100</text>
+                  <text class="axis-text" x="160" y="18" text-anchor="middle">250</text>
+                  <text class="axis-text" x="250" y="18" text-anchor="middle">500</text>
+                  <text class="axis-text" x="345" y="18" text-anchor="middle">1k</text>
+                  <text class="axis-text" x="440" y="18" text-anchor="middle">2k</text>
+                  <text class="axis-text" x="535" y="18" text-anchor="middle">4k</text>
+                  <text class="axis-text" x="625" y="18" text-anchor="middle">8k</text>
+                  <text class="axis-text" x="700" y="18" text-anchor="middle">16k</text>
+                  <text class="axis-text db" x="736" y="154" text-anchor="end">-3</text>
+                  <text class="axis-text db" x="736" y="214" text-anchor="end">-6</text>
+                  <text class="axis-text db" x="736" y="274" text-anchor="end">-9</text>
+                </g>
+              </svg>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- utility bar -->
+      <div class="utilbar">
+        <span class="util-toggle"><span class="ring"></span>bypass</span>
+        <span class="util-toggle"><span class="ring"></span>delta</span>
+        <span class="util-field">mix <span class="val">100 %</span></span>
+        <span class="util-field">out <span class="val">0.0 dB</span></span>
+        <span class="util-spacer"></span>
+        <span class="lock">🔒</span>
+        <span class="util-field">quality <span class="dropdown">normal <span class="caret">▾</span></span></span>
+        <span class="lock">🔒</span>
+        <span class="ll-pill"><span class="ring" style="width:11px;height:11px"></span>low latency</span>
+      </div>
+    </div>
+
+    <div class="caption">
+      <h3>설계 결정 3가지 — Dark</h3>
+      <ol>
+        <li><b>색 = 의미 규칙 계승.</b> 스펙트럼/응답 곡선은 쿨(<span class="swatch" style="background:#8fd0ff"></span>#8fd0ff 신호),
+          리덕션 리본과 경계 핸들은 앰버(<span class="swatch" style="background:#e0783c"></span>#e0783c 동작)로만 칠했다.
+          soothe의 임의적 빨강/초록 핸들 대신, "지금 처리 중"을 앰버 하나로 통일해 패밀리 규칙(쿨=신호/웜=동작)을 지켰다.</li>
+        <li><b>계측기다운 수치.</b> 모든 값 칩(5.0, 100 %, 0.0 dB)과 우측 dB 눈금은 모노스페이스로 두어 소수점이 정렬되게 했다 —
+          LpngLookAndFeel의 의도적 시그니처.</li>
+        <li><b>평평한 크롬, 데이터만 발색.</b> 그라데이션·그림자 없이 well은 인셋 1px 헤어라인으로만 구분하고,
+          배경/그리드/틱은 전부 모노크롬 그레이로 눌러 신호와 액센트가 유일한 색이 되게 했다.</li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- ======================= VARIANT B: LIGHT ======================= -->
+  <div class="mock-block">
+    <div class="mock-head">
+      <h2>Variant B — Family Light</h2>
+      <span class="tag">design-reference.md</span>
+    </div>
+
+    <div class="mockup light">
+      <!-- top bar -->
+      <div class="topbar">
+        <div class="brand"><span class="mark">Lpng Spectral</span><span class="ver">1.0</span></div>
+        <div class="preset-nav">
+          <span class="icon-btn">‹</span>
+          <span class="icon-btn">›</span>
+          <span class="preset-name">Factory default <span class="pin">📌</span></span>
+        </div>
+        <div class="spacer"></div>
+        <div class="ab-group">
+          <span class="ab on">A</span>
+          <span class="ab">B</span>
+          <span class="ab arrow">A → B</span>
+        </div>
+        <span class="icon-btn">?</span>
+        <span class="icon-btn">⚙</span>
+      </div>
+
+      <!-- body -->
+      <div class="body">
+        <!-- left rail -->
+        <div class="rail">
+          <div class="pill-toggle"><span class="on">soft</span><span>hard</span></div>
+
+          <div class="hero-wrap">
+            <div class="hero-label">Depth</div>
+            <svg class="knob" width="92" height="92" viewBox="0 0 100 100" aria-hidden="true">
+              <path class="knob-track-a" d="M23.13,76.87 A38,38 0 1 1 76.87,76.87"/>
+              <path class="knob-value-a knob-value-hero" d="M23.13,76.87 A38,38 0 0 1 50,12"/>
+              <circle class="knob-face-c" cx="50" cy="50" r="30"/>
+              <line class="knob-pointer-l" x1="50" y1="34" x2="50" y2="18"/>
+            </svg>
+            <div><span class="chip">5.0</span></div>
+          </div>
+
+          <div class="rail-gap"></div>
+
+          <div class="knob-cell" style="max-width:120px;margin:0 auto;">
+            <div class="knob-label">detail</div>
+            <svg class="knob" width="52" height="52" viewBox="0 0 100 100" aria-hidden="true">
+              <path class="knob-track-a" d="M23.13,76.87 A38,38 0 1 1 76.87,76.87"/>
+              <path class="knob-value-a" d="M23.13,76.87 A38,38 0 0 1 50,12"/>
+              <circle class="knob-face-c" cx="50" cy="50" r="30"/>
+              <line class="knob-pointer-l" x1="50" y1="34" x2="50" y2="18"/>
+            </svg>
+            <div><span class="chip">5.0</span></div>
+          </div>
+
+          <div class="rail-gap"></div>
+
+          <div class="small-knobs">
+            <div class="knob-cell">
+              <div class="knob-label">attack</div>
+              <svg class="knob" width="50" height="50" viewBox="0 0 100 100" aria-hidden="true">
+                <path class="knob-track-a" d="M23.13,76.87 A38,38 0 1 1 76.87,76.87"/>
+                <path class="knob-value-a" d="M23.13,76.87 A38,38 0 0 1 50,12"/>
+                <circle class="knob-face-c" cx="50" cy="50" r="30"/>
+                <line class="knob-pointer-l" x1="50" y1="34" x2="50" y2="18"/>
+              </svg>
+              <div><span class="chip">5.0</span></div>
+            </div>
+            <div class="knob-cell">
+              <div class="knob-label">release</div>
+              <svg class="knob" width="50" height="50" viewBox="0 0 100 100" aria-hidden="true">
+                <path class="knob-track-a" d="M23.13,76.87 A38,38 0 1 1 76.87,76.87"/>
+                <path class="knob-value-a" d="M23.13,76.87 A38,38 0 0 1 24.11,31.19"/>
+                <circle class="knob-face-c" cx="50" cy="50" r="30"/>
+                <line class="knob-pointer-l" x1="37.06" y1="40.60" x2="24.11" y2="31.19"/>
+              </svg>
+              <div><span class="chip">3.0</span></div>
+            </div>
+          </div>
+
+          <div class="rail-spacer"></div>
+        </div>
+
+        <!-- display -->
+        <div class="display-col">
+          <div class="side-tabs">
+            <div class="side-tab"><span class="lbl">stereo</span><span class="dot"></span></div>
+            <div class="side-tab changed"><span class="lbl">tilt</span><span class="dot"></span></div>
+            <div class="side-tab"><span class="lbl">scale</span><span class="dot"></span></div>
+          </div>
+
+          <div class="plot-area">
+            <div class="plot-well">
+              <svg class="plot-svg" viewBox="0 0 740 330" preserveAspectRatio="none">
+                <g>
+                  <line class="grid-line" x1="70"  y1="24" x2="70"  y2="300"/>
+                  <line class="grid-line" x1="160" y1="24" x2="160" y2="300"/>
+                  <line class="grid-line" x1="250" y1="24" x2="250" y2="300"/>
+                  <line class="grid-line maj" x1="345" y1="24" x2="345" y2="300"/>
+                  <line class="grid-line" x1="440" y1="24" x2="440" y2="300"/>
+                  <line class="grid-line" x1="535" y1="24" x2="535" y2="300"/>
+                  <line class="grid-line" x1="625" y1="24" x2="625" y2="300"/>
+                  <line class="grid-line" x1="700" y1="24" x2="700" y2="300"/>
+                  <line class="grid-line" x1="20" y1="150" x2="712" y2="150"/>
+                  <line class="grid-line" x1="20" y1="210" x2="712" y2="210"/>
+                  <line class="grid-line" x1="20" y1="270" x2="712" y2="270"/>
+                </g>
+                <path class="spec-fill" d="M30,300 L30,235 C90,215 130,250 190,238 C250,225 300,232 350,215 C420,195 470,222 540,208 C600,196 655,220 700,232 L700,300 Z"/>
+                <path class="spec-line" d="M30,235 C90,215 130,250 190,238 C250,225 300,232 350,215 C420,195 470,222 540,208 C600,196 655,220 700,232"/>
+                <path class="spec-pre"  d="M30,244 C90,226 130,256 190,246 C250,234 300,240 350,226 C420,206 470,230 540,216 C600,205 655,228 700,238"/>
+                <path class="reduce-fill" d="M270,148 C340,146 380,120 440,112 C500,105 560,135 620,165 L620,177 C560,147 500,117 440,124 C380,132 340,158 270,160 Z"/>
+                <path class="curve-line" d="M70,300 C74,180 78,150 110,150 C170,150 210,150 270,148 C340,146 380,120 440,112 C500,105 560,135 620,165 C660,183 685,205 700,235"/>
+                <g class="handle">
+                  <circle class="glow" cx="70" cy="150" r="16"/>
+                  <rect x="65.5" y="132" width="9" height="40" rx="4.5"/>
+                </g>
+                <g class="handle">
+                  <circle class="glow" cx="700" cy="200" r="16"/>
+                  <rect x="695.5" y="182" width="9" height="40" rx="4.5"/>
+                </g>
+                <g class="node">
+                  <circle class="hit" cx="440" cy="112" r="14"/>
+                  <circle class="core" cx="440" cy="112" r="7.5"/>
+                </g>
+                <g>
+                  <text class="axis-text" x="70"  y="18" text-anchor="middle">100</text>
+                  <text class="axis-text" x="160" y="18" text-anchor="middle">250</text>
+                  <text class="axis-text" x="250" y="18" text-anchor="middle">500</text>
+                  <text class="axis-text" x="345" y="18" text-anchor="middle">1k</text>
+                  <text class="axis-text" x="440" y="18" text-anchor="middle">2k</text>
+                  <text class="axis-text" x="535" y="18" text-anchor="middle">4k</text>
+                  <text class="axis-text" x="625" y="18" text-anchor="middle">8k</text>
+                  <text class="axis-text" x="700" y="18" text-anchor="middle">16k</text>
+                  <text class="axis-text db" x="736" y="154" text-anchor="end">-3</text>
+                  <text class="axis-text db" x="736" y="214" text-anchor="end">-6</text>
+                  <text class="axis-text db" x="736" y="274" text-anchor="end">-9</text>
+                </g>
+              </svg>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- utility bar -->
+      <div class="utilbar">
+        <span class="util-toggle"><span class="ring"></span>bypass</span>
+        <span class="util-toggle"><span class="ring"></span>delta</span>
+        <span class="util-field">mix <span class="val">100 %</span></span>
+        <span class="util-field">out <span class="val">0.0 dB</span></span>
+        <span class="util-spacer"></span>
+        <span class="lock">🔒</span>
+        <span class="util-field">quality <span class="dropdown">normal <span class="caret">▾</span></span></span>
+        <span class="lock">🔒</span>
+        <span class="ll-pill"><span class="ring" style="width:11px;height:11px"></span>low latency</span>
+      </div>
+    </div>
+
+    <div class="caption">
+      <h3>설계 결정 3가지 — Light</h3>
+      <ol>
+        <li><b>종이용 데이터 색을 새로 설계.</b> 크림 캔버스에서 라이트 블루(#8fd0ff)는 대비가 죽어
+          신호를 <span class="swatch" style="background:#0b61c4"></span>#0b61c4(딥 애저)로, 레퍼런스는
+          <span class="swatch" style="background:#6d82a6"></span>#6d82a6(뮤트 스틸)로 낮췄다. 응답 곡선은 흰색 대신
+          <span class="swatch" style="background:#1b1b1b"></span>#1b1b1b 잉크 — 종이 위에서 가장 대비 높은 마크가 되어야 하므로.</li>
+        <li><b>액션 슬롯은 엠버 오렌지 고정.</b> 리덕션 리본과 경계 핸들·인디케이터 점은
+          <span class="swatch" style="background:#ff3e00"></span>#ff3e00 하나로 통일했다.
+          design-reference의 액션 색과 패밀리의 "웜=동작" 규칙이 정확히 겹치는 지점이라 그대로 승계했다.</li>
+        <li><b>그림자 없는 종이 질감.</b> well은 순백(#ffffff) + <span class="swatch" style="background:#f2f0ed"></span>#f2f0ed
+          인셋 헤어라인, 나머지 표면은 크림/스톤 톤차로만 구분(0.04 알파 이상 그림자 금지).
+          모노스페이스 대신 tabular-nums로 수치를 정렬해 라이트 언어를 유지하면서 계측기 정렬은 지켰다.</li>
+      </ol>
+    </div>
+  </div>
+</div>
