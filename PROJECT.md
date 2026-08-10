@@ -39,6 +39,11 @@ LLM은 실시간으로 소리를 만들지 않는다. 실시간 DSP 엔진을 **
   차별화 투자는 **자연어 조작 레이어**에: 의도("보컬이 harsh해") + 애널라이저 컨텍스트 →
   LLM이 BandParams JSON 배치, 대화형 반복. smart:EQ류와의 차이 = 커브 통계가 아닌 의도 해석.
   이건 메타 플러그인의 프롬프트→파라미터 매핑(제품 IP)을 EQ 1노드로 선행 검증하는 것.
+- **구현 순서 변경**: Spectral processor(#6)를 Saturator(#4/5) 앞으로 당김. 근거 —
+  의존성 없음(soothe류는 비선형 없음 → oversampling 불필요), STFT 인프라의 메타 플러그인
+  레버리지가 최대(spectral 노드 패밀리 + NL 레이어가 실시간 스펙트럼 컨텍스트를 공유),
+  다이내믹 EQ 직후라 상대-threshold 개념이 이미 검증된 상태. Saturator는 삭제가 아니라
+  후순위 이월 — oversampling 인프라는 부채로 명시해둔다.
 
 ---
 
@@ -85,6 +90,9 @@ ZL Audio와 동일한 전략: 메타 플러그인으로 바로 가지 않는다.
   발각 (Ivantsov φ 함수 분자 오타, sigma 최적 범위가 논문과 정반대). 리서치→문서→구현 어느
   단계든 전사 오류가 생기니, 원 논문과의 수치 대조는 문서 요약이 아니라 프로토가 한다.
   (기존 "리서치가 준 공식도 틀린다" 항목과 연결.)
+- **레이턴시 보고 첫 실전**: STFT 노드는 `setLatencySamples` 필수, 모드별(quality/
+  low-latency/linear-phase) 레이턴시가 다르면 전환 시 재보고(호스트 PDC 재협상)해야 한다.
+  지금까지 모든 노드가 latency 0이었으므로 이게 처음 겪는 경로 (docs/spectral-reference.md 참고).
 
 ---
 
@@ -95,9 +103,9 @@ ZL Audio와 동일한 전략: 메타 플러그인으로 바로 가지 않는다.
    커브 디스플레이 + pre/post 애널라이저 + Pro-Q식 핸들 인터랙션, pluginval 통과)
    - 잔여: matched filter 커널 교체 (아래 함정 참고), 자연어 레이어 (결정 사항 참고)
 3. Compressor — 엔벨로프 팔로워, 니, 사이드체인, GR 미터 (다음 제품, docs/compressor-reference.md)
-4. Saturator + Oversampling — 앨리어싱 확인 및 제거
+4. Saturator + Oversampling — 앨리어싱 확인 및 제거 (→ **#6 뒤로 이월**, 아래 "결정 사항" 참고)
 5. Delay / Chorus — 딜레이 라인, 보간, 피드백, 모듈레이션
-6. Spectral Processor — STFT 파이프라인 (→ Soothe 계열)
+6. Spectral Processor — STFT 파이프라인 (→ Soothe 계열) **← 다음 제품 (Saturator보다 먼저 착수)**
 7. 노드 그래프 엔진 — 1~6을 조합 가능한 노드로 리팩터링
 8. Lock-free 그래프 스왑
 9. LLM 레이어 → MVP
@@ -258,5 +266,7 @@ pamplejuce의 CMakeLists를 **읽고 이해**하는 건 좋지만, fork하지 �
 8. ~~파라미터 스키마 레이어 (LLM 레이어의 기반)~~ (완료, 커밋 83b342b)
 9. 다이내믹 EQ(밴드별 레벨 의존 게인) + DF1 통일 + UI 어포던스 퀵윈 —
    구현 완료, **커밋 대기** (working tree, 2026-07)
-10. Saturator + Oversampling — 다음 제품 (앨리어싱 확인 및 제거)
-11. 자연어 EQ 레이어 — 별도 설계 세션 필요
+10. Spectral Processor — **다음 제품, 시작함**. Stage 0 측정 키트 제작 중
+    (docs/soothe3-measurement-procedure.md 참고, docs/spectral-reference.md가 리서치 레퍼런스)
+11. Saturator + Oversampling — #10 뒤로 이월
+12. 자연어 EQ 레이어 — 별도 설계 세션 필요
