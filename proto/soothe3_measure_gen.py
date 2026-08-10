@@ -124,6 +124,12 @@ PAIR_SPACINGS_OCT = [2.0, 1.0, 0.5, 1.0 / 3.0, 1.0 / 6.0, 1.0 / 12.0]
 PAIR_STEP_DUR = 2.0
 PAIR_TONE_RMS_DBFS = -18.0
 
+# notch_probe: ONE loud sine on a broadband bed -> direct kernel-WIDTH read.
+NOTCH_FREQ = 3000.0
+NOTCH_TONE_RMS_DBFS = -18.0   # loud tone, well above the bed -> a clear resonance
+NOTCH_BED_RMS_DBFS = -36.0    # broadband bed the notch is carved into
+NOTCH_DUR = 6.0
+
 
 # ----------------------------------------------------------------------------
 # signal builders — each returns (mono float64, segments-list-or-None)
@@ -234,6 +240,29 @@ def build_pair_sweep():
     return np.concatenate(parts), segs
 
 
+def build_notch_probe():
+    """A single loud 3 kHz sine sitting on a broadband white-noise bed. soothe3
+    detects the tone as a resonance and carves a NOTCH around it; because the bed
+    supplies probe energy at EVERY frequency, the width of the reduction the notch
+    imprints on the bed (attenuation-vs-frequency around 3 kHz) is a DIRECT read of
+    the frequency-kernel width.
+
+    WHY a new probe: pair_sweep has energy only AT its two tones, so the gap
+    between them is unmeasurable and per-tone attenuation confounds kernel width
+    with processing depth and with absolute frequency (the tones move 1500..6000 Hz
+    across the sweep). This probe removes all three confounds — fixed frequency,
+    broadband bed to read the shoulders, one tone so depth is just the notch floor.
+    Bounce ONCE PER Detail (0/50/100) to map Detail -> kernel width in octaves."""
+    n = int(round(NOTCH_DUR * FS))
+    bed = _RNG.standard_normal(n)
+    bed *= dbfs_to_amp(NOTCH_BED_RMS_DBFS) / np.sqrt(np.mean(bed**2))
+    tone = sine(NOTCH_FREQ, NOTCH_DUR, sine_amp_for_rms_dbfs(NOTCH_TONE_RMS_DBFS))
+    tone = _cos_fade(tone, STEP_FADE)
+    return bed + tone, {"freq": NOTCH_FREQ,
+                        "tone_rms_dbfs": NOTCH_TONE_RMS_DBFS,
+                        "bed_rms_dbfs": NOTCH_BED_RMS_DBFS}
+
+
 def build_passthrough_ref():
     """5 s white noise + the 1 kHz staircase, concatenated (~20 s), for
     latency / null alignment. Broadband + tonal content gives cross-correlation
@@ -251,6 +280,7 @@ BUILDERS = {
     "burst_3k": (build_burst_3k, "gated 3 kHz tone -> GR attack/release time constants"),
     "pair_sweep": (build_pair_sweep, "closing tone pair -> frequency-kernel width vs Detail"),
     "passthrough_ref": (build_passthrough_ref, "noise+staircase -> latency alignment / null check"),
+    "notch_probe": (build_notch_probe, "one loud sine on a broadband bed -> DIRECT frequency-kernel width vs Detail"),
 }
 
 

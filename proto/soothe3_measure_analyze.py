@@ -387,8 +387,27 @@ def analyze_burst(in_path, presets, plots, results):
 
 def analyze_pair(in_path, presets, plots, results):
     print("\n" + "=" * 78)
-    print("6. FREQUENCY-KERNEL WIDTH  (pair_sweep, per Detail)")
+    print("6. SPACING INTERACTION  (pair_sweep, per Detail)")
     print("=" * 78)
+    # WHAT THIS PROBE CAN AND CANNOT MEASURE.
+    # pair_sweep has energy ONLY at its two tones, so the gap between them carries
+    # no probe signal — the NOTCH SHAPE (hence a kernel width in octaves) is NOT
+    # recoverable here; only the attenuation measured AT each tone is. And the
+    # tones sweep 1500..6000 Hz as the spacing opens, so per-tone attenuation at
+    # wide spacing also confounds any absolute-frequency dependence of the plugin.
+    # Therefore this section reports the SPACING-INTERACTION STRENGTH (a
+    # selectivity fingerprint), not a width. The clean width comes from
+    # notch_probe (section 6b).
+    #
+    # DIAGNOSIS of the earlier bug: the old code assumed a kernel wider than the
+    # spacing must MASK (each tone raises the other's local envelope -> exceed
+    # drops -> LESS attenuation) and defined signature = ref(widest) - atten,
+    # expecting a positive drop. The real soothe3 bounces do the OPPOSITE:
+    # attenuation RISES as the tones close (two sub-kernel tones read as ONE
+    # stronger resonance -> more relative exceed -> MORE attenuation). So the old
+    # drop was <=0 everywhere -> signature ~0, onset = nan. Both signs mean the
+    # same thing physically ("kernel is wider than this spacing"), so we now key
+    # off the SIGNED magnitude of the change and report its direction.
     manifest = load_manifest()
     segs = manifest["files"]["pair_sweep"]["segments"]
     fs = manifest["fs"]
@@ -396,37 +415,93 @@ def analyze_pair(in_path, presets, plots, results):
     fig, ax = plt.subplots(figsize=(8, 4))
     for preset, out_path in presets:
         x_out, _ = read_mono(out_path)
-        spacings, atten_lo = [], []
+        spacings, atten = [], []
         for s in segs:
             i0, i1 = int(s["steady_start"] * fs), int(s["steady_end"] * fs)
-            a_in = tone_amp(x_in[i0:i1], s["f_lo"], fs)
-            a_out = tone_amp(x_out[i0:i1], s["f_lo"], fs)
+            # mean of the two tones' attenuation — at the narrow spacings both sit
+            # near 3 kHz so this is the least frequency-confounded reading.
+            a_in_lo = tone_amp(x_in[i0:i1], s["f_lo"], fs)
+            a_out_lo = tone_amp(x_out[i0:i1], s["f_lo"], fs)
+            a_in_hi = tone_amp(x_in[i0:i1], s["f_hi"], fs)
+            a_out_hi = tone_amp(x_out[i0:i1], s["f_hi"], fs)
+            at_lo = 20.0 * np.log10((a_in_lo + 1e-12) / (a_out_lo + 1e-12))
+            at_hi = 20.0 * np.log10((a_in_hi + 1e-12) / (a_out_hi + 1e-12))
             spacings.append(s["spacing_oct"])
-            atten_lo.append(20.0 * np.log10((a_in + 1e-12) / (a_out + 1e-12)))
-        spacings, atten_lo = np.array(spacings), np.array(atten_lo)
-        # As two tones close, a kernel wider than their spacing raises each tone's
-        # local envelope with the other tone -> exceedance drops -> LESS atten.
-        # So the atten drop as spacing shrinks is the kernel's fingerprint:
-        #   signature   = how much atten falls across the sweep (kernel strength)
-        #   onset_oct   = widest spacing where atten has fallen >1 dB below the
-        #                 wide-spacing reference (where interaction becomes visible)
-        ref = atten_lo[np.argmax(spacings)]         # widest-spacing atten
-        drop = ref - atten_lo
-        signature = float(np.max(drop))
-        interacting = spacings[drop > 1.0]
+            atten.append(0.5 * (at_lo + at_hi))
+        spacings, atten = np.array(spacings), np.array(atten)
+        # interaction relative to the widest spacing (the "most resolved" pair);
+        # signed so the direction is visible, magnitude is the fingerprint.
+        ref = atten[np.argmax(spacings)]
+        delta = atten - ref                       # +ve = closer pair attenuated MORE
+        i_strong = int(np.argmax(np.abs(delta)))
+        signature = float(np.abs(delta[i_strong]))
+        direction = ("merging (closer pair -> more atten)" if delta[i_strong] > 0
+                     else "masking (closer pair -> less atten)")
+        # onset = widest spacing at which the interaction first exceeds 1 dB.
+        interacting = spacings[np.abs(delta) > 1.0]
         onset_oct = float(np.max(interacting)) if interacting.size else float("nan")
-        print(f"  [{preset:24s}] ref(widest)={ref:5.2f} dB  interaction signature={signature:5.2f} dB  "
-              f"onset spacing ~ {onset_oct} oct")
-        for sp, at in zip(spacings, atten_lo):
+        print(f"  [{preset:24s}] ref(widest)={ref:5.2f} dB  interaction={signature:5.2f} dB "
+              f"[{direction}]  onset spacing ~ {onset_oct} oct")
+        for sp, at in zip(spacings, atten):
             print(f"        spacing {sp:6.3f} oct -> atten {at:5.2f} dB")
         results.setdefault("kernel", {})[preset] = {"spacing_oct": spacings.tolist(),
-                                                     "atten_db": atten_lo.tolist(),
+                                                     "atten_db": atten.tolist(),
                                                      "signature_db": signature,
+                                                     "direction": direction,
                                                      "onset_oct": onset_oct}
-        ax.plot(spacings, atten_lo, "-o", ms=4, label=preset)
-    ax.set_xlabel("tone spacing (octaves)"); ax.set_ylabel("atten @ lower tone dB")
-    ax.set_title("pair_sweep: kernel probe"); ax.grid(True, alpha=.3); ax.legend(fontsize=7)
+        ax.plot(spacings, atten, "-o", ms=4, label=preset)
+    ax.set_xlabel("tone spacing (octaves)"); ax.set_ylabel("mean atten of the two tones dB")
+    ax.set_title("pair_sweep: spacing interaction"); ax.grid(True, alpha=.3); ax.legend(fontsize=7)
     fig.tight_layout(); fig.savefig(os.path.join(plots, "pair_kernel.png"), dpi=120); plt.close(fig)
+    return results
+
+
+def analyze_notch(in_path, presets, plots, results):
+    print("\n" + "=" * 78)
+    print("6b. FREQUENCY-KERNEL WIDTH  (notch_probe, per Detail) — direct")
+    print("=" * 78)
+    # One loud sine on a broadband bed: soothe carves a notch at the tone and the
+    # bed makes the notch's SHOULDERS visible at every frequency. The width of the
+    # attenuation bump around the tone IS the frequency-kernel width. FWHM (the
+    # span where attenuation exceeds half its peak) is reported in octaves and Hz.
+    manifest = load_manifest()
+    info = manifest["files"]["notch_probe"]["segments"]
+    f0 = info["freq"] if isinstance(info, dict) else 3000.0
+    x_in, fs = read_mono(in_path)
+    fig, ax = plt.subplots(figsize=(9, 4))
+    for preset, out_path in presets:
+        x_out, _ = read_mono(out_path)
+        f, atten = welch_atten(x_in, x_out, fs, nperseg=8192)
+        m = (f > f0 / 2.0) & (f < f0 * 2.0)
+        fa, aa = f[m], atten[m]
+        ipk = int(np.argmax(aa))
+        pk = float(aa[ipk]); fpk = float(fa[ipk])
+        half = pk / 2.0
+        # walk out contiguously from the peak while still above half-max
+        lo = ipk
+        while lo > 0 and aa[lo - 1] > half:
+            lo -= 1
+        hi = ipk
+        while hi < len(aa) - 1 and aa[hi + 1] > half:
+            hi += 1
+        flo, fhi = float(fa[lo]), float(fa[hi])
+        if pk > 1.0 and fhi > flo:
+            width_oct = float(np.log2(fhi / flo))
+            width_hz = fhi - flo
+        else:
+            width_oct = float("nan"); width_hz = float("nan")
+        print(f"  [{preset:24s}] peak atten {pk:5.2f} dB @ {fpk:6.0f} Hz  "
+              f"notch width {width_oct:.3f} oct ({width_hz:6.0f} Hz)")
+        results.setdefault("kernel_notch", {})[preset] = {
+            "peak_atten_db": pk, "peak_hz": fpk,
+            "width_oct": width_oct, "width_hz": width_hz}
+        ax.plot(fa, aa, lw=0.8, label=f"{preset} (w={width_oct:.2f} oct)")
+    ax.axhline(0, color="k", lw=0.5)
+    ax.set_xscale("log"); ax.set_xlabel("Hz"); ax.set_ylabel("attenuation dB")
+    ax.set_title("notch_probe: notch carved around 3 kHz vs Detail")
+    ax.grid(True, alpha=.3); ax.legend(fontsize=7)
+    fig.tight_layout(); fig.savefig(os.path.join(plots, "notch_kernel.png"), dpi=120); plt.close(fig)
+    print("    INFO: a narrower notch (fewer oct) => higher Detail/selectivity.")
     return results
 
 
@@ -456,7 +531,8 @@ def run_pipeline(in_dir, out_dir, plots):
         return os.path.join(in_dir, base + ".wav")
 
     order = ["passthrough_ref", "noise_white", "sine_staircase_1k",
-             "sine_staircase_4k", "resonance_in_noise", "burst_3k", "pair_sweep"]
+             "sine_staircase_4k", "resonance_in_noise", "burst_3k", "pair_sweep",
+             "notch_probe"]
     for base in order:
         if base not in pairs:
             print(f"\n[TODO] no OUT bounce for '{base}' — skipping "
@@ -477,6 +553,13 @@ def run_pipeline(in_dir, out_dir, plots):
             analyze_burst(inp(base), presets, plots, results)
         elif base == "pair_sweep":
             analyze_pair(inp(base), presets, plots, results)
+        elif base == "notch_probe":
+            analyze_notch(inp(base), presets, plots, results)
+
+    if "notch_probe" not in pairs:
+        print("\n[TODO] no OUT bounce for 'notch_probe' — the DIRECT kernel-width "
+              "probe. Owner: bounce notch_probe__detail0/detail50/detail100.wav "
+              "into out/ (kit rows #17-19).")
 
     print_target_table(results)
     return results
@@ -499,7 +582,13 @@ def print_target_table(results):
     for preset, d in results.get("ballistics", {}).items():
         print(f"| GR attack / release | {d['attack_ms']:.1f} ms / {d['release_ms']:.1f} ms | burst_3k__{preset} |")
     for preset, d in results.get("kernel", {}).items():
-        print(f"| frequency-kernel (signature / onset) | {d['signature_db']:.2f} dB / ~{d['onset_oct']} oct | pair_sweep__{preset} |")
+        print(f"| spacing interaction (signature / onset) | {d['signature_db']:.2f} dB / ~{d['onset_oct']} oct | pair_sweep__{preset} |")
+    kn = results.get("kernel_notch", {})
+    if kn:
+        for preset, d in kn.items():
+            print(f"| frequency-kernel WIDTH | {d['width_oct']:.3f} oct ({d['width_hz']:.0f} Hz), peak {d['peak_atten_db']:.1f} dB | notch_probe__{preset} |")
+    else:
+        print("| frequency-kernel WIDTH | needs bounce N°17-19 (notch_probe__detail0/50/100) | notch_probe |")
     print("```")
 
 
@@ -545,6 +634,12 @@ def selftest():
         ("pair_sweep", "detail0", dict(mode="relative", depth_db=12, kernel_bins=25)),
         ("pair_sweep", "detail50", dict(mode="relative", depth_db=12, kernel_bins=11)),
         ("pair_sweep", "detail100", dict(mode="relative", depth_db=12, kernel_bins=3)),
+        # notch_probe: known kernel widths (wide->narrow == detail0->detail100).
+        # simulate_soothe's fft=2048 => bin = fs/2048 Hz, so the carved notch is
+        # kernel_bins wide; the analyzer must recover that FWHM in Hz.
+        ("notch_probe", "detail0", dict(mode="relative", depth_db=18, kernel_bins=25, thresh_rel_db=6.0)),
+        ("notch_probe", "detail50", dict(mode="relative", depth_db=18, kernel_bins=15, thresh_rel_db=6.0)),
+        ("notch_probe", "detail100", dict(mode="relative", depth_db=18, kernel_bins=9, thresh_rel_db=6.0)),
     ]:
         y = simulate_soothe(mono(base), fs, **kw)
         _write_stereo(os.path.join(out_dir, f"{base}__{preset}.wav"), fs, y)
@@ -609,12 +704,30 @@ def selftest():
     check("band_res smoothing finite", np.isfinite(results["band_res"]["soft_detail50"][2]),
           f"{results['band_res']['soft_detail50'][2]:.0f} Hz")
 
-    # detail -> kernel: a wider simulated kernel must give a STRONGER spacing-
-    # dependent interaction signature (detail0 widest -> detail100 narrowest).
+    # pair_sweep spacing interaction: a wider simulated kernel must give a
+    # STRONGER spacing-dependent interaction (detail0 widest -> detail100
+    # narrowest). Signature is now the SIGNED-magnitude of the change, so it is
+    # non-degenerate whichever way the stand-in leans (here it MASKS, real soothe3
+    # MERGES — both are picked up by the magnitude).
     sig = {p: results["kernel"][p]["signature_db"] for p in ("detail0", "detail50", "detail100")}
-    check("kernel signatures finite", all(np.isfinite(v) for v in sig.values()), f"{sig}")
-    check("kernel signature detail0 > detail50 > detail100",
+    check("pair interaction signatures finite", all(np.isfinite(v) for v in sig.values()), f"{sig}")
+    check("pair interaction detail0 > detail50 > detail100",
           sig["detail0"] > sig["detail50"] >= sig["detail100"], f"{sig}")
+
+    # notch_probe: the DIRECT kernel-width read. Recovered FWHM (Hz) must match the
+    # simulator's known kernel width (kernel_bins * fs/fft) within tolerance, and
+    # must order wide->narrow as detail0->detail100.
+    binhz = fs / 2048.0                       # simulate_soothe default fft
+    truth_hz = {"detail0": 25 * binhz, "detail50": 15 * binhz, "detail100": 9 * binhz}
+    wid = {p: results["kernel_notch"][p]["width_hz"] for p in truth_hz}
+    check("notch widths finite", all(np.isfinite(v) for v in wid.values()), f"{wid}")
+    check("notch width ordering detail0 > detail50 > detail100",
+          wid["detail0"] > wid["detail50"] > wid["detail100"],
+          {p: f"{wid[p]:.0f} Hz" for p in truth_hz})
+    for p in truth_hz:
+        rel = abs(wid[p] - truth_hz[p]) / truth_hz[p]
+        check(f"notch width {p} within 30% of known kernel", rel < 0.30,
+              f"recovered {wid[p]:.0f} Hz vs known {truth_hz[p]:.0f} Hz ({rel*100:.0f}%)")
 
     print("\n" + "#" * 78)
     print(f"# SELFTEST {'PASS — every path ran, all numbers within tolerance' if ok else 'FAIL'}")

@@ -34,7 +34,7 @@ Logic Pro에서 프로브 WAV를 soothe3에 통과시켜 바운스 → `soothe3_
 
 ---
 
-## 1. 바운스 매트릭스 (총 16개)
+## 1. 바운스 매트릭스 (총 19개)
 
 각 행: soothe3 설정 → 저장 파일명 → 왜 이 측정인가.
 
@@ -56,6 +56,11 @@ Logic Pro에서 프로브 WAV를 soothe3에 통과시켜 바운스 → `soothe3_
 | 14 | `pair_sweep__detail100.wav` | soft, Detail **100** | 커널 폭 (가장 좁음) |
 | 15 | `resonance_in_noise__soft_detail50_delta.wav` | soft, Detail 50, **Delta ON** | 제거된 성분만 캡처 → 리덕션 절대 기준(제거량 검증) |
 | 16 | `mix__delta.wav` | 아무 실제 믹스 스니펫(owner 선택) 트랙에 soothe3, **Delta ON** | 실제 소재에서 soothe3가 실제로 무엇을 빼는지 정성 확인 |
+| 17 | `notch_probe__detail0.wav` | soft, Detail **0** | 3k 단일 톤+광대역 베드 → soothe가 파는 노치의 **폭 직접 측정**(커널 가장 넓음) |
+| 18 | `notch_probe__detail50.wav` | soft, Detail **50** | 노치 폭 중간점 |
+| 19 | `notch_probe__detail100.wav` | soft, Detail **100** | 노치 폭 (커널 가장 좁음) |
+
+**#17–19은 pair_sweep(#12–14)를 대체하는 게 아니라 보완한다.** pair_sweep은 두 톤에만 에너지가 있어 톤 사이 간격의 노치 모양(=커널 폭 oct)을 볼 수 없고, 톤이 1500–6000 Hz로 움직여 절대주파수 의존성과 뒤섞인다. 그래서 pair_sweep은 "간격 상호작용 강도(selectivity 지문)"만, notch_probe는 광대역 베드에 찍힌 노치의 FWHM로 **커널 폭(oct/Hz)을 직접** 준다. Detail→커널폭 매핑의 확정값은 #17–19에서 나온다.
 
 주의(#10, #11): attack/release는 **온셋(톤 켜짐)에서 attack**, **오프 구간의 노이즈 베드에 남는 GR 회복에서 release**를 읽음. 그래서 in/ 파일에 -50 dBFS 소음 베드를 깔아둠 — 베드 트랙 볼륨 건드리지 말 것.
 
