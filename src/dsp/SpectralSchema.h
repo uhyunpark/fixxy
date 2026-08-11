@@ -87,6 +87,22 @@ inline std::vector<paramschema::ParamDescriptor> spectralSchema() {
         .defaultVal = 0.0,
     });
 
+    s.push_back(ParamDescriptor{
+        .id = "bypass",
+        .type = ParamType::Bool,
+        .defaultVal = 0.0,
+        .note = "transparent latency-preserving passthrough (output = latency-"
+                "aligned dry); ignores mix and output trim",
+    });
+
+    s.push_back(ParamDescriptor{
+        .id = "delta",
+        .type = ParamType::Bool,
+        .defaultVal = 0.0,
+        .note = "solo the removed component (wet - dry); ignores mix, applies "
+                "output trim; depth=0 => silence",
+    });
+
     return s;
 }
 

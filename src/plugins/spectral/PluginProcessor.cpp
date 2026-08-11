@@ -3,6 +3,8 @@
 #include <cmath>
 
 #include "dsp/SpectralSchema.h"
+#include "plugins/spectral/SpectralMix.h"
+#include "plugins/spectral/ui/SpectralEditor.h"
 
 #if JUCE_DEBUG
 namespace {
@@ -22,7 +24,10 @@ void verifySpectralSchemaAgainstApvts(juce::AudioProcessorValueTreeState& apvts)
             continue;
 
         if (d.type == ParamType::Bool) {
-            jassertfalse;  // spectral has no bool params
+            auto* b = dynamic_cast<juce::AudioParameterBool*>(param);
+            jassert(b != nullptr);
+            if (b != nullptr)
+                jassert(std::abs((b->get() ? 1.0 : 0.0) - d.defaultVal) < 1e-6);
         } else if (d.type == ParamType::Choice) {
             jassertfalse;  // spectral has no choice params
         } else {
@@ -51,6 +56,8 @@ SpectralProcessor::SpectralProcessor()
     releaseParam = apvts.getRawParameterValue("release");
     mixParam = apvts.getRawParameterValue("mix");
     outputParam = apvts.getRawParameterValue("output");
+    bypassParam = apvts.getRawParameterValue("bypass");
+    deltaParam = apvts.getRawParameterValue("delta");
 
 #if JUCE_DEBUG
     verifySpectralSchemaAgainstApvts(apvts);
@@ -91,6 +98,23 @@ juce::AudioProcessorValueTreeState::ParameterLayout SpectralProcessor::createPar
         juce::ParameterID{"output", 1}, "Output",
         juce::NormalisableRange<float>(-24.0f, 12.0f, 0.1f), 0.0f, Attr().withLabel("dB")));
 
+    // BYPASS: transparent, latency-preserving passthrough (output = dry, aligned
+    // to the N-sample delay). The node keeps running so un-bypassing never clicks.
+    // DELIBERATELY a plain parameter, NOT the host-bypass parameter (we do not
+    // override getBypassParameter()): our pill only re-selects the output while
+    // processBlock keeps taping specFifo + running the node, so the analyzer
+    // stays live under our bypass. The host's OWN bypass (Logic's power button)
+    // still routes through JUCE's default processBlockBypassed and stops feeding
+    // us — the editor handles that starvation by decaying the display toward the
+    // floor (SpectralAnalyzerView), rather than us fighting the host's intent.
+    layout.add(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{"bypass", 1}, "Bypass", false));
+
+    // DELTA: solo the removed component (wet - dry). soothe's signature listening
+    // tool AND our dev probe — ignores mix, applies output trim. depth=0 => silence.
+    layout.add(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{"delta", 1}, "Delta", false));
+
     return layout;
 }
 
@@ -129,6 +153,13 @@ void SpectralProcessor::prepareToPlay(double sampleRate, int samplesPerBlock) {
 
     dryScratch.setSize(numChannels, samplesPerBlock, false, false, true);
     dryScratch.clear();
+
+    // Input spectrum tap. Capacity = max(2 * FFT, 0.1 s) at the highest
+    // supported rate (mirrors the EQ analyzer sizing) so it never reallocates
+    // under the editor's reader on a later sample-rate change.
+    const int fifoCap = juce::jmax(2 * kAnalyzerFftSize,
+                                   static_cast<int>(std::ceil(0.1 * kAnalyzerMaxFs)));
+    specFifo.prepare(fifoCap, numChannels);
 }
 
 void SpectralProcessor::releaseResources() {}
@@ -148,6 +179,12 @@ void SpectralProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
 
     const int numSamples = buffer.getNumSamples();
     const int numChannels = buffer.getNumChannels();
+
+    // Input spectrum tap (pre-node): the editor's analyzer draws the signal
+    // ENTERING the processor. Lock-free, bounded, drop-on-overflow
+    // (SpectrumFifo::write) — the one added audio-thread publish besides the
+    // reduction snapshot below.
+    specFifo.write(buffer.getArrayOfReadPointers(), numChannels, numSamples);
 
     // Advance the continuous smoothers by this block and resolve params ONCE
     // (setParams does the coefficient work). skip() returns the value after
@@ -187,21 +224,33 @@ void SpectralProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
     }
     dryRingWritePos = (dryRingWritePos + numSamples) % ringSize;
 
+    // The node ALWAYS runs (even under bypass/delta) so its OLA state stays warm
+    // and the reduction ribbon stays live; only the output SELECTION changes.
     spectral.process(buffer.getArrayOfWritePointers(), numChannels, numSamples);
+
+    // Publish the last-hop per-bin reduction snapshot for the editor's ribbon.
+    // One bounded copy (kNumBins floats) out of the node, then a seqlock write.
+    spectral.copyReductionDb(reductionScratch.data(), SpectralNode::kNumBins);
+    reduction.write(reductionScratch.data(), SpectralNode::kNumBins);
+
+    // Bypass wins over delta wins over the normal blend (see SpectralMix.h).
+    using spectralmix::Mode;
+    const Mode mode = (bypassParam->load() > 0.5f) ? Mode::Bypass
+                    : (deltaParam->load() > 0.5f)  ? Mode::Delta
+                                                   : Mode::Normal;
 
     for (int ch = 0; ch < numChannels; ++ch) {
         const float* dry = dryScratch.getReadPointer(ch);
         float* wet = buffer.getWritePointer(ch);
-        for (int i = 0; i < numSamples; ++i) {
-            const double out = ((1.0 - mix) * static_cast<double>(dry[i])
-                                 + mix * static_cast<double>(wet[i])) * outputGainLinear;
-            wet[i] = static_cast<float>(out);
-        }
+        for (int i = 0; i < numSamples; ++i)
+            wet[i] = static_cast<float>(spectralmix::blend(
+                static_cast<double>(dry[i]), static_cast<double>(wet[i]),
+                mix, outputGainLinear, mode));
     }
 }
 
 juce::AudioProcessorEditor* SpectralProcessor::createEditor() {
-    return new juce::GenericAudioProcessorEditor(*this);
+    return new SpectralEditor(*this);
 }
 
 void SpectralProcessor::getStateInformation(juce::MemoryBlock& destData) {

@@ -8,6 +8,8 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 
 #include "dsp/SpectralNode.h"
+#include "plugins/eq/SpectrumFifo.h"
+#include "plugins/spectral/ReductionPublisher.h"
 
 /**
     LpngSpectral — spectral dynamic-resonance suppressor (soothe-class) product.
@@ -59,13 +61,28 @@ public:
         return publishedSampleRate.load(std::memory_order_relaxed);
     }
 
+    // --- editor-facing publish surface (message-thread reads) ---
+    // Input spectrum tap (pre-node), drained by the editor's 30 Hz analyzer.
+    SpectrumFifo specFifo;
+    // Latest per-bin reduction snapshot (dB, >= 0) for the editor's ember ribbon.
+    ReductionPublisher<SpectralNode::kNumBins> reduction;
+
 private:
+    static constexpr int kAnalyzerFftSize = 4096;
+    static constexpr double kAnalyzerMaxFs = 192000.0;
+
     std::atomic<float>* depthParam = nullptr;
     std::atomic<float>* detailParam = nullptr;
     std::atomic<float>* attackParam = nullptr;
     std::atomic<float>* releaseParam = nullptr;
     std::atomic<float>* mixParam = nullptr;
     std::atomic<float>* outputParam = nullptr;
+    std::atomic<float>* bypassParam = nullptr;
+    std::atomic<float>* deltaParam = nullptr;
+
+    // Preallocated scratch for copying the node's per-bin reduction out to the
+    // publisher once per block (no allocation on the audio thread).
+    std::array<float, SpectralNode::kNumBins> reductionScratch{};
 
     juce::LinearSmoothedValue<double> depthSmoother;
     juce::LinearSmoothedValue<double> detailSmoother;

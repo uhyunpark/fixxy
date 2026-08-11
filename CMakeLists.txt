@@ -104,6 +104,14 @@ lpng_add_plugin(
     PLUGIN_CODE Lpsp
     SOURCES
         src/plugins/spectral/PluginProcessor.cpp
+        src/plugins/LpngLookAndFeel.h
+        src/plugins/spectral/SpectralMix.h
+        src/plugins/spectral/ReductionPublisher.h
+        src/plugins/spectral/ui/SpectralDisplayMap.h
+        src/plugins/spectral/ui/SpectralAnalyzerView.h
+        src/plugins/spectral/ui/SpectralEditor.h
+        src/plugins/eq/SpectrumFifo.h
+        src/plugins/eq/ui/AnalyzerEngine.h
         src/dsp/SpectralNode.h
         src/dsp/SpectralFft.h
 )
@@ -180,6 +188,18 @@ add_executable(SpectralNodeTest test/spectral_node_test.cpp)
 target_include_directories(SpectralNodeTest PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/test)
 target_compile_features(SpectralNodeTest PRIVATE cxx_std_20)
 set_source_files_properties(test/spectral_node_test.cpp PROPERTIES
+    COMPILE_OPTIONS "-Wall;-Wextra;-Wconversion;-Wshadow")
+
+# Offline unit test: the LpngSpectral editor UI/publish seams — DisplayMap's
+# three separate scales (freq log x, spectrum level dB, reduction ribbon extent),
+# the mix/delta/bypass blend algebra (SpectralMix.h), the ReductionPublisher
+# seqlock round-trip, and a publish round-trip through the real SpectralNode
+# (resonance fixture -> copyReductionDb peaks at the tone's bin). Plain C++, no
+# JUCE — every mapped/published header is deliberately JUCE-free.
+add_executable(SpectralUiMapTest test/spectral_ui_map_test.cpp)
+target_include_directories(SpectralUiMapTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_features(SpectralUiMapTest PRIVATE cxx_std_20)
+set_source_files_properties(test/spectral_ui_map_test.cpp PROPERTIES
     COMPILE_OPTIONS "-Wall;-Wextra;-Wconversion;-Wshadow")
 
 juce_add_console_app(AnalyzerEngineTest PRODUCT_NAME "AnalyzerEngineTest")

@@ -277,7 +277,7 @@ void verifySpectralSchema() {
         {"output", -24.0, 12.0, 0.0},
     };
 
-    check("spectral", "schema has exactly 6 params", schema.size() == 6,
+    check("spectral", "schema has exactly 8 params", schema.size() == 8,
           ("count=" + std::to_string(schema.size())).c_str());
 
     for (const auto& e : expected) {
@@ -293,6 +293,21 @@ void verifySpectralSchema() {
               "vs APVTS layout");
         check("spectral", (tag + ".type").c_str(), d->type == paramschema::ParamType::Float,
               "vs APVTS layout");
+    }
+
+    // Bool params (bypass, delta) added for the Stage-5 editor. Transcribed
+    // independently from PluginProcessor.cpp: both AudioParameterBool default false.
+    for (const char* id : {"bypass", "delta"}) {
+        const auto* d = find(schema, id);
+        std::string tag = std::string("spectral.") + id;
+        if (d == nullptr) {
+            check("spectral", tag.c_str(), false, "missing from schema");
+            continue;
+        }
+        check("spectral", (tag + ".type").c_str(), d->type == paramschema::ParamType::Bool,
+              "vs APVTS layout (AudioParameterBool)");
+        check("spectral", (tag + ".default").c_str(), nearlyEqual(d->defaultVal, 0.0),
+              "vs APVTS layout (default false)");
     }
 
     // Cross-check against SpectralNode::Params defaults directly.

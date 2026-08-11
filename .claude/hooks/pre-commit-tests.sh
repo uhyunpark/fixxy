@@ -18,11 +18,14 @@ BUILD_DIR="$PROJECT_DIR/build"
 
 BAND_RESPONSE_TEST="$BUILD_DIR/BandResponseTest"
 MATCHED_KERNEL_TEST="$BUILD_DIR/MatchedKernelTest"
+# Artefact dir varies with CMAKE_BUILD_TYPE (Debug/ subdir or flat) — try both.
 ANALYZER_ENGINE_TEST="$BUILD_DIR/AnalyzerEngineTest_artefacts/Debug/AnalyzerEngineTest"
+[ -x "$ANALYZER_ENGINE_TEST" ] || ANALYZER_ENGINE_TEST="$BUILD_DIR/AnalyzerEngineTest_artefacts/AnalyzerEngineTest"
 COMPRESSOR_NODE_TEST="$BUILD_DIR/CompressorNodeTest"
 DYNAMIC_EQ_TEST="$BUILD_DIR/DynamicEqTest"
 COMP_UI_MAP_TEST="$BUILD_DIR/CompUiMapTest"
 SPECTRAL_NODE_TEST="$BUILD_DIR/SpectralNodeTest"
+SPECTRAL_UI_MAP_TEST="$BUILD_DIR/SpectralUiMapTest"
 
 fail=0
 
@@ -64,6 +67,13 @@ fi
 if [ -x "$SPECTRAL_NODE_TEST" ]; then
   if ! "$SPECTRAL_NODE_TEST" >/dev/null 2>&1; then
     echo "pre-commit hook: SpectralNodeTest FAILED" >&2
+    fail=1
+  fi
+fi
+
+if [ -x "$SPECTRAL_UI_MAP_TEST" ]; then
+  if ! "$SPECTRAL_UI_MAP_TEST" >/dev/null 2>&1; then
+    echo "pre-commit hook: SpectralUiMapTest FAILED" >&2
     fail=1
   fi
 fi

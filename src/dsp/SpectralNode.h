@@ -149,6 +149,7 @@ public:
         for (int b = 0; b < kNumBins; ++b) {
             ballS1_[static_cast<std::size_t>(b)] = 0.0;
             ballY1_[static_cast<std::size_t>(b)] = 0.0;
+            redDb_[static_cast<std::size_t>(b)] = 0.0;  // ribbon reads 0 while idle/bypassed
         }
     }
 
@@ -177,6 +178,18 @@ public:
 
     const Params& getParams() const { return params_; }
     double getMaxDbScaled() const { return maxDbScaled_; }  // scaled reduction ceiling (for tests/UI)
+
+    /** Copy the current per-bin reduction curve (dB, >= 0) into dst[0..n).
+        This is the last-processed hop's smoothed+ballistics reduction — the same
+        quantity that becomes gain = 10^(-red/20) — exposed for the editor's
+        reduction ribbon. Plain copy, NO atomics (src/dsp stays atomic-free; the
+        plugin layer owns the cross-thread publish, see src/plugins/CLAUDE.md).
+        When inactive (depth == 0) every bin is 0. n is clamped to kNumBins. */
+    void copyReductionDb(float* dst, int n) const {
+        const int m = n < kNumBins ? n : kNumBins;
+        for (int b = 0; b < m; ++b)
+            dst[static_cast<std::size_t>(b)] = static_cast<float>(redDb_[static_cast<std::size_t>(b)]);
+    }
 
     /** Audio thread. Pushes numSamples/channel, drains whole hops, emits exactly
         numSamples/channel of output delayed by N. Allocation-free. */
@@ -332,6 +345,7 @@ private:
             s1 = x > relPole ? x : relPole;   // s1 = max(x, aR*(s1-x)+x)
             const double y = aA_ * (y1 - s1) + s1;
             y1 = y;
+            redDb_[static_cast<std::size_t>(b)] = y;  // published to the editor's ribbon
             gain_[static_cast<std::size_t>(b)] = std::pow(10.0, -y / 20.0);
         }
     }
@@ -561,6 +575,7 @@ private:
     std::array<double, kNumBins> redRaw_{};
     std::array<double, kNumBins> redSmooth_{};
     std::array<double, kNumBins> gain_{};
+    std::array<double, kNumBins> redDb_{};  // last-hop per-bin reduction dB (for the UI ribbon)
     std::array<double, kNumBins + 1> csum_{};
     std::array<double, kEnvGridM> onGrid_{};
     std::array<double, kEnvGridM> med_{};
