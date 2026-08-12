@@ -65,34 +65,17 @@ ZL Audio와 동일한 전략: 메타 플러그인으로 바로 가지 않는다.
 
 ## 함정 (모르면 시간 날림)
 
-- **파라미터 스무딩** 안 하면 지퍼 노이즈.
-- **오버샘플링** 안 하면 비선형 처리가 앨리어싱으로 싸구려 소리. 이걸 빼면 새추레이션 튜닝 전부 무의미.
-- **필터 계수 실시간 변조** 시 biquad 불안정 → ZDF/TPT(SVF) 구조. (Zavalishin / Wishnick)
-- **레이턴시 보고** 누락 시 트랙 정렬 깨짐 (룩어헤드/FFT 사용 시).
-- **상태 직렬화**에 생성된 DSP 정의까지 포함해야 프로젝트 재로드가 됨.
-- **Bilinear/TPT cramping**: 44.1kHz에서 10kHz 이상 벨/셸프가 아날로그 대비 1.4~3.1dB 왜곡
-  (측정: proto/cramping.py). TPT의 사다리꼴 적분기 자체가 bilinear 맵이라 (g,k,m)으로는 못 고침.
-  해법 = matched 계수 + normal-form 실현. 삼자 대조(proto/matched_kernel.py) 결과
-  Ivantsov 채택(σ=2.028, 주파수 보정 필수) — 8타입 전부 커버, 셸프/notch/tilt는 Vicanek에
-  없음. 단 고슬로프 LP/HP 캐스케이드는 matched의 Nyquist 잔차가 누적(96dB/oct에서 4.35dB)되어
-  TPT 유지.
-  **단 matched 계수 ≠ 변조 안전성** — 정적 정확도와 시변 안정성은 별개 축. 둘 다 필요.
-- **리서치가 준 공식도 틀린다**: Butterworth 폴 배분의 cos형은 짝수 차수에서만 우연히 맞음
-  (올바른 건 sin형). scipy 대조 assert가 잡았다 — 독립 수치 대조 없이 C++ 가지 말 것.
-- **이음새 버그** (2026-07 애널라이저 사례): 컴포넌트 단위 테스트가 전부 통과해도 컴포넌트
-  사이 경계는 아무 테스트도 안 건널 수 있다. 실제 사례: 스펙트럼 애널라이저가 Logic에서
-  완전히 빈 화면 — AnalyzerEngine(dB 출력 검증됨)과 CoordMap(EQ 게인용 ±30dB 창) 각자는
-  정상인데, 빈당 스펙트럼 레벨(−40~−90dB)을 EQ 게인 축에 그대로 매핑해 전부 바닥으로 clamp.
-  스펙트럼 레벨 축과 EQ 게인 축은 다른 물리량 — 상용 EQ가 전부 분리 스케일을 쓰는 이유.
-  UI 기능은 콘솔 테스트 + pluginval만으로는 부족하고 standalone/호스트에서 실제 신호로
-  시각 확인해야 한다.
-- **레퍼런스 요약 문서도 틀린다**: docs/eq_reference_guide.md에서 오류 2건이 수치 검증에서
-  발각 (Ivantsov φ 함수 분자 오타, sigma 최적 범위가 논문과 정반대). 리서치→문서→구현 어느
-  단계든 전사 오류가 생기니, 원 논문과의 수치 대조는 문서 요약이 아니라 프로토가 한다.
-  (기존 "리서치가 준 공식도 틀린다" 항목과 연결.)
-- **레이턴시 보고 첫 실전**: STFT 노드는 `setLatencySamples` 필수, 모드별(quality/
-  low-latency/linear-phase) 레이턴시가 다르면 전환 시 재보고(호스트 PDC 재협상)해야 한다.
-  지금까지 모든 노드가 latency 0이었으므로 이게 처음 겪는 경로 (docs/spectral-reference.md 참고).
+- **파라미터는 전부 스무딩**.
+- **비선형 처리 앞에는 오버샘플링**.
+- **필터 계수 실시간 변조는 ZDF/TPT(SVF) 구조로**. (Zavalishin / Wishnick)
+- **룩어헤드/FFT 쓰면 레이턴시 보고**.
+- **상태 직렬화에 생성된 DSP 정의까지 포함**.
+- **10kHz 이상 벨/셸프는 matched 계수(Ivantsov, σ=2.028, 주파수 보정 필수)**, 실현은 DF1.
+  고슬로프 LP/HP 캐스케이드만 TPT 유지. (측정 proto/cramping.py, 대조 proto/matched_kernel.py)
+- **모든 공식·레퍼런스 문서는 scipy 대조 assert 통과 후에만 C++로**.
+- **컴포넌트 경계(매핑·호출 패턴)는 별도 이음새 테스트**, UI는 호스트에서 실신호로 시각 확인.
+- **STFT 노드는 `setLatencySamples` 필수**, 모드별 레이턴시가 다르면 전환 시 재보고.
+- **DAW 설치·성능 판단은 `-DCMAKE_BUILD_TYPE=Release` 빌드로**.
 
 ---
 
@@ -260,13 +243,11 @@ pamplejuce의 CMakeLists를 **읽고 이해**하는 건 좋지만, fork하지 �
 4. ~~EQ 밴드 1개(peaking) 구현, 멀티 타겟 빌드로 분리~~ (완료, Week 2)
 5. ~~멀티밴드 EQ로 확장 → 독립 제품(LpngEQ)으로 pluginval 통과~~ (완료: DSP + UI 3단계)
 6. ~~Compressor 제품(LpngComp) — Giannoulis feed-forward~~ (완료, 커밋 6db1f86)
-7. ~~Matched filter C++ 커널 교체~~ (완료: Ivantsov 계수, **Direct Form I** 실현 — 애초
-   계획한 normal-form은 다이내믹 EQ의 서브블록 계수 변조 대응을 위해 DF1로 교체됨,
-   자세한 이유는 src/dsp/SvfBandNode.h 헤더 주석. 커밋 9dbac22)
-8. ~~파라미터 스키마 레이어 (LLM 레이어의 기반)~~ (완료, 커밋 83b342b)
-9. 다이내믹 EQ(밴드별 레벨 의존 게인) + DF1 통일 + UI 어포던스 퀵윈 —
-   구현 완료, **커밋 대기** (working tree, 2026-07)
-10. Spectral Processor — **다음 제품, 시작함**. Stage 0 측정 키트 제작 중
-    (docs/soothe3-measurement-procedure.md 참고, docs/spectral-reference.md가 리서치 레퍼런스)
-11. Saturator + Oversampling — #10 뒤로 이월
-12. 자연어 EQ 레이어 — 별도 설계 세션 필요
+7. ~~Matched filter C++ 커널 교체~~ (완료: Ivantsov + DF1, 커밋 9dbac22)
+8. ~~파라미터 스키마 레이어~~ (완료, 커밋 83b342b)
+9. ~~다이내믹 EQ + DF1 통일 + UI 어포던스 퀵윈~~ (완료, 커밋 ccdea03)
+10. ~~Spectral Processor (LpngSpectral)~~ (완료, 커밋 a3b5835.
+    docs/soothe3-measurement-procedure.md, docs/spectral-reference.md)
+11. Saturator + Oversampling — 이월분, 다음 후보
+12. EQ/컴프 라이트 스킨 이관 — docs/issues.md DESIGN-DIRECTION
+13. 자연어 레이어 — 별도 설계 세션 필요
