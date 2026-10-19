@@ -58,7 +58,7 @@
     simply not entered). Only the gain-bearing matched types (Bell, LowShelf,
     HighShelf, Tilt) take dynamics; Notch/Bandpass/Low/High-pass ignore dynEnabled.
 
-    Node-library contract (PROJECT.md / CLAUDE.md):
+    Node-library contract (docs/architecture.md / AGENTS.md):
       - Uniform lifecycle: prepare() / reset() / process().
       - Parameters as DATA (BandParams), not hardcoded members — the LLM layer
         will emit these as JSON.

@@ -11,7 +11,7 @@
     most recent complete one. Unlike SpectrumFifo (a continuous stream), the
     ribbon only ever wants the CURRENT frame, so this is a seqlock, not a queue.
 
-    Atomics live in the plugin layer, never in src/dsp (src/plugins/CLAUDE.md).
+    Atomics live in the plugin layer, never in src/dsp (src/plugins/AGENTS.md).
 
     Atomic payload makes concurrent copies legal in the C++ memory model;
     checking a sequence afterwards does not make plain-float races safe.

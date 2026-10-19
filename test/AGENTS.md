@@ -1,4 +1,4 @@
-# test/CLAUDE.md
+# test/AGENTS.md
 
 Console tests are the C++-side half of the proto -> C++ verification bridge.
 JUCE-free plain C++ by default; pull in a JUCE module only when the tested unit
@@ -23,7 +23,7 @@ itself needs one.
    pattern: check the executable exists (skips silently on a clean checkout with
    no build dir), run it, flag failure.
 3. If the test needs numeric fixtures, generate `test/<name>_fixtures.h` from a
-   `proto/dump_*.py` script (`proto/CLAUDE.md`) — never hand-transcribe numbers
+   `proto/dump_*.py` script (`proto/AGENTS.md`) — never hand-transcribe numbers
    from a proto's printed output.
 
 ## Current test roster

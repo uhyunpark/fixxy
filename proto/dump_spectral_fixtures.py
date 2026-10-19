@@ -107,7 +107,7 @@ FROZEN = {
 def assert_calibration_reproduces():
     """Re-run the verified calibration and assert it still lands on the frozen
     numbers (scipy drift guard). A failure here is a real signal, not a tolerance
-    to loosen (proto/CLAUDE.md)."""
+    to loosen (proto/AGENTS.md)."""
     cal = sc.calibrate()
     for key, frozen in FROZEN.items():
         got = float(cal[key])

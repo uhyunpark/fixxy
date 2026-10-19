@@ -61,10 +61,10 @@ available from which to produce JSON).
 
 ## Control plug-in verification
 
-The same executable loaded the locally built LpngSpectral VST3, processed finite
+The same executable loaded the then-current legacy `LpngSpectral` VST3, processed finite
 silence, enumerated 59 public parameters, and reported 1024 samples of latency after
 prepare at both 44.1 and 48 kHz. Full output is in
-`build/parity/lpngspectral-inspect.json`.
+`build/parity/lpngspectral-inspect.json` (historical artifact path).
 
 A deterministic offline render applied normalized settings by stable ID/name, disabled
 all eight weighting bands, added an explicit 0.1-second zero-input tail, trimmed the

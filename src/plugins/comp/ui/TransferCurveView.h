@@ -5,7 +5,7 @@
 
 #include "CompCurveMap.h"
 #include "dsp/CompressorNode.h"
-#include "plugins/LpngLookAndFeel.h"
+#include "plugins/FixxyLookAndFeel.h"
 
 /**
     Static transfer-curve display: in-dB vs out-dB (-60..0 square, linear —
@@ -62,7 +62,7 @@ public:
     const compui::CompCurveMap& getMap() const { return map; }
 
     void paint(juce::Graphics& g) override {
-        using namespace lpng;
+        using namespace fixxy;
         const auto r = getLocalBounds().toFloat();
 
         g.setColour(palette::col(palette::displayWell));
@@ -184,7 +184,7 @@ public:
         const auto& map = curve.getMap();
         const float x = map.dbToX(dotInDb);
         const float y = map.dbToY(dotOutDb);
-        g.setColour(lpng::palette::col(lpng::palette::accentBright));
+        g.setColour(fixxy::palette::col(fixxy::palette::accentBright));
         g.fillEllipse(x - kDotR, y - kDotR, kDotR * 2.0f, kDotR * 2.0f);
     }
 

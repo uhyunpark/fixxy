@@ -1,4 +1,4 @@
-# src/dsp/CLAUDE.md
+# src/dsp/AGENTS.md
 
 Shared node-library contract. Every node here is a candidate node in the eventual
 graph library — the conventions below exist so nodes stay swappable and safe to
@@ -30,10 +30,10 @@ tables (`CompressorSchema.h`, `EqSchema.h`) live next to their node headers.
   buffers are float. Coefficient recompute and envelope math accumulate error
   fast enough at float precision to matter.
 - JUCE-free, header-only. No atomics here — atomics for cross-thread publishing
-  (meters, GR display) belong in the plugin layer (`src/plugins/CLAUDE.md`), not
+  (meters, GR display) belong in the plugin layer (`src/plugins/AGENTS.md`), not
   in a node.
 - Constructible and preparable off the audio thread — this is what makes the
-  lock-free graph-swap architecture possible (PROJECT.md 난제 1).
+  lock-free graph-swap architecture possible (docs/architecture.md 난제 1).
 
 ## Audio-thread absolutes in `process()`
 
@@ -60,7 +60,7 @@ at high slopes.
 
 A DSP change to this directory ports from a **verified** `proto/*.py` module, never
 re-derives in C++. Each ported kernel gets a console test (`test/*_test.cpp`) whose
-fixtures are dumped from the proto by a `dump_*.py` script (`proto/CLAUDE.md`), not
+fixtures are dumped from the proto by a `dump_*.py` script (`proto/AGENTS.md`), not
 copied by hand from proto printouts.
 
 ## UI-facing math shares a single source
@@ -70,4 +70,4 @@ in exactly one header, consumed by both sides — see the `BandResponse.h` /
 `MatchedCoeffs.h` pattern: `computeSectionRecipe()` / `matched::computeBiquad()` are
 called by both `SvfBandNode::computeSection()` (audio thread) and the UI's response
 evaluator. A curve that says one thing while the filter does another is worse than
-no curve (PROJECT.md 함정: 이음새 버그).
+no curve (docs/architecture.md 함정: 이음새 버그).

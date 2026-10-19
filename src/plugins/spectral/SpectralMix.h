@@ -4,7 +4,7 @@
 #include <cmath>
 
 /**
-    LpngSpectral output-stage algebra, factored out of processBlock() as a pure,
+    fixxy Spectral output-stage algebra, factored out of processBlock() as a pure,
     JUCE-free function so the mix / delta / bypass seam can be unit-tested off
     the audio thread (test/spectral_ui_map_test.cpp) — the family habit of
     extracting the load-bearing math into a testable header (cf. comp/ui maps).

@@ -15,7 +15,7 @@
 #include "plugins/spectral/SpectralMix.h"
 
 /**
-    LpngSpectral — spectral dynamic-resonance suppressor (soothe-class) product.
+    fixxy Spectral — spectral dynamic-resonance suppressor (soothe-class) product.
     Thin plugin shell over the JUCE-free SpectralNode (src/dsp/): APVTS params
     -> smoothed Params -> node, with sample-wise smoothing at the output blend.
     The custom editor displays the input spectrum, reduction and weight curve.

@@ -9,11 +9,11 @@
 #include "GrMeter.h"
 #include "LevelMeter.h"
 #include "TransferCurveView.h"
-#include "plugins/LpngLookAndFeel.h"
+#include "plugins/FixxyLookAndFeel.h"
 #include "plugins/comp/PluginProcessor.h"
 
 /**
-    LpngComp v2 editor. Layout (resizable, default 900x600):
+    fixxy Comp v2 editor. Layout (resizable, default 900x600):
 
       header   : product name strip
       display  : transfer curve (left ~75%) + fixed-width meter zone
@@ -22,7 +22,7 @@
                  | Makeup(M) Mix(M) Range(M)   — grouped by function
       toggles  : AutoMakeup, ProgRel, SC HPF, RMS
 
-    Palette rule (LpngLookAndFeel spec): threshold/ratio/range knobs get the
+    Palette rule (FixxyLookAndFeel spec): threshold/ratio/range knobs get the
     warm accent fill (dynamics action); every other knob keeps the cool
     controlFill; meters showing LEVEL are cool, the GR meter and the transfer
     curve (the plugin acting on the signal) carry the accent.
@@ -53,14 +53,14 @@ public:
             addAndMakeVisible(k.label);
             k.label.setText(kKnobDefs[i].title, juce::dontSendNotification);
             k.label.setJustificationType(juce::Justification::centred);
-            k.label.setFont(lpng::labelFont());
+            k.label.setFont(fixxy::labelFont());
 
             addAndMakeVisible(k.slider);
             k.slider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
             k.slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 64, 15);
             if (kKnobDefs[i].dynamics)  // dynamics knob agrees with the GR meter
                 k.slider.setColour(juce::Slider::rotarySliderFillColourId,
-                                   lpng::palette::col(lpng::palette::accent));
+                                   fixxy::palette::col(fixxy::palette::accent));
             k.attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
                 proc.apvts, kKnobDefs[i].paramId, k.slider);
         }
@@ -94,7 +94,7 @@ public:
     }
 
     void paint(juce::Graphics& g) override {
-        using namespace lpng;
+        using namespace fixxy;
         g.fillAll(palette::col(palette::window));
 
         // Header strip: product name (chrome only).
@@ -112,7 +112,7 @@ public:
     }
 
     void resized() override {
-        using namespace lpng::metrics;
+        using namespace fixxy::metrics;
         auto r = getLocalBounds();
         r.removeFromTop(kHeaderH);
 
@@ -166,20 +166,20 @@ private:
     struct KnobDef {
         const char* paramId;
         const char* title;
-        int size;       // lpng::metrics::kKnobS/M/L by importance
+        int size;       // fixxy::metrics::kKnobS/M/L by importance
         bool dynamics;  // true -> warm accent fill (palette rule)
     };
     static constexpr std::size_t kNumKnobs = 9;
     static inline const std::array<KnobDef, kNumKnobs> kKnobDefs{{
-        {"threshold", "Threshold", lpng::metrics::kKnobL, true},
-        {"ratio", "Ratio", lpng::metrics::kKnobL, true},
-        {"knee", "Knee", lpng::metrics::kKnobM, false},
-        {"attack", "Attack", lpng::metrics::kKnobM, false},
-        {"release", "Release", lpng::metrics::kKnobM, false},
-        {"hold", "Hold", lpng::metrics::kKnobS, false},
-        {"makeup", "Makeup", lpng::metrics::kKnobM, false},
-        {"mix", "Mix", lpng::metrics::kKnobM, false},
-        {"range", "Range", lpng::metrics::kKnobM, true},
+        {"threshold", "Threshold", fixxy::metrics::kKnobL, true},
+        {"ratio", "Ratio", fixxy::metrics::kKnobL, true},
+        {"knee", "Knee", fixxy::metrics::kKnobM, false},
+        {"attack", "Attack", fixxy::metrics::kKnobM, false},
+        {"release", "Release", fixxy::metrics::kKnobM, false},
+        {"hold", "Hold", fixxy::metrics::kKnobS, false},
+        {"makeup", "Makeup", fixxy::metrics::kKnobM, false},
+        {"mix", "Mix", fixxy::metrics::kKnobM, false},
+        {"range", "Range", fixxy::metrics::kKnobM, true},
     }};
 
     struct ToggleDef {
@@ -216,7 +216,7 @@ private:
 
     CompProcessor& proc;
 
-    lpng::LpngLookAndFeel lnf;  // must outlive the children below
+    fixxy::FixxyLookAndFeel lnf;  // must outlive the children below
 
     TransferCurveView curve;
     IoDotLayer dot;

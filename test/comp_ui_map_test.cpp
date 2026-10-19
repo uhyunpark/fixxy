@@ -1,4 +1,4 @@
-// Offline verification of the LpngComp editor's UI-side math seams:
+// Offline verification of the Fixxy Comp editor's UI-side math seams:
 //
 //   1. Meter scale mappers (CompMeterMap.h) — the ANALYZER LESSON applied to
 //      meters: gainReductionDb is a POSITIVE magnitude on its own 0..30 dB
@@ -6,7 +6,7 @@
 //      scale. These asserts pin the seam: GR 0 -> empty, GR 30 -> full,
 //      IN -60 -> bottom (0), IN 0 -> top (1). Feeding one quantity through the
 //      other's mapper is exactly the class of bug that produced the blank EQ
-//      analyzer (PROJECT.md 함정, 이음새 버그) — a meter pinned always-empty /
+//      analyzer (docs/architecture.md 함정, 이음새 버그) — a meter pinned always-empty /
 //      always-full while every component test passes.
 //
 //   2. CompCurveMap round-trips (dbToX/xToDb, dbToY/yToDb) — the transfer

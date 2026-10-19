@@ -5,13 +5,13 @@
 #include "dsp/SpectralWeight.h"
 
 /**
-    JUCE-free coordinate math for the LpngSpectral display, kept in its own
+    JUCE-free coordinate math for the fixxy Spectral display, kept in its own
     header so the seams can be unit-tested with a bare console target
     (test/spectral_ui_map_test.cpp) — same discipline as comp/ui's CompCurveMap
     / CompMeterMap.
 
     FOUR DIFFERENT PHYSICAL QUANTITIES share this one plot rectangle, and — per
-    the analyzer lesson (src/plugins/CLAUDE.md, PROJECT.md 이음새 버그) — each
+    the analyzer lesson (src/plugins/AGENTS.md, docs/architecture.md 이음새 버그) — each
     gets its OWN scale. Mixing them (e.g. drawing reduction dB on the spectrum's
     level axis) is exactly the class of bug that produced a blank analyzer while
     every component test passed:

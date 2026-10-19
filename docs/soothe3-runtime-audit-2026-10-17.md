@@ -20,7 +20,7 @@ controlled response matching and perceptual equivalence remain unverified.
 
 ## Evidence inspected and fresh diagnostics
 
-Read `AGENTS.md`, DSP/plugin/test conventions, `PROJECT.md`, the latest checkpoint
+Read `AGENTS.md`, DSP/plugin/test conventions, `docs/architecture.md`, the latest checkpoint
 in `soothe3-parity-progress.md`, control/FIR/transition/Hard port reports, and the
 production node, processor, schema, publisher, UI and workflow source.
 
@@ -349,9 +349,11 @@ monitor precedence and each supported maximum layout's complete CPU/memory cost.
 
 ## Parameter/state compatibility requirements
 
-1. Keep selected `fixxy` display branding while preserving bundle identity,
-   manufacturer/plugin codes, APVTS IDs, state tree names, `LpngSpectral`
-   presetFormat and `.lpngspectral` compatibility as recorded in `PROJECT.md`.
+1. Keep selected `fixxy` branding while preserving bundle identity,
+   manufacturer/plugin codes, APVTS IDs and legacy state/preset readability.
+   Current writers use `FIXXY_SPECTRAL_STATE`, `FixxySpectral` presetFormat and
+   `.fixxyspectral`; legacy readers accept `LPNGSPECTRAL_STATE`, `LpngSpectral`
+   and `.lpngspectral` as recorded in `docs/architecture.md`.
 2. Append IDs; preserve existing choice ordinals and current host parameter
    ordering/normalized ranges. Existing attack/release are milliseconds, MaxCut
    24 is OFF, and three legacy tilt IDs retain their old meaning. A new global

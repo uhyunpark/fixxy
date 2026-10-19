@@ -37,7 +37,7 @@
     LATENCY: v1 has NO lookahead (not proto-verified). Latency = 0 samples;
     there is nothing to report to the host.
 
-    Node-library contract (PROJECT.md / CLAUDE.md):
+    Node-library contract (docs/architecture.md / AGENTS.md):
       - Uniform lifecycle prepare(fs, maxBlockSize, numChannels)/reset/process.
       - Parameters as DATA (Params), not hardcoded members — the LLM layer will
         emit these as JSON.

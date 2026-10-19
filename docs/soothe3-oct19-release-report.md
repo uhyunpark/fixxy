@@ -26,7 +26,7 @@ Installed all six validated bundles after root's visual approval: `fixxy EQ`,
 
 ## Installation and recovery
 
-The exact six old `LpngEQ`, `LpngComp`, and `LpngSpectral` AU/VST3 bundles were
+The exact six legacy `LpngEQ`, `LpngComp`, and `LpngSpectral` AU/VST3 bundles were
 moved, without deletion, to:
 
 `/Users/uhyun/Library/Application Support/fixxy/oct19-backup.RdSuzq`

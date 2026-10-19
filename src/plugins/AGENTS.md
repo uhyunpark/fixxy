@@ -1,4 +1,4 @@
-# src/plugins/CLAUDE.md
+# src/plugins/AGENTS.md
 
 Plugin-layer conventions — one independent JUCE product per effect
 (`src/plugins/eq`, `src/plugins/comp`, ...), sharing the `src/dsp/` node library.
@@ -39,7 +39,7 @@ message thread.
 
 Any curve or meter drawn in the UI is evaluated from the exact same coefficients
 the audio kernel runs — see the `BandResponse.h` / `MatchedCoeffs.h` shared-recipe
-pattern (`src/dsp/CLAUDE.md`). Never re-derive filter math in UI code.
+pattern (`src/dsp/AGENTS.md`). Never re-derive filter math in UI code.
 
 ## The analyzer lesson
 
@@ -47,7 +47,7 @@ Spectrum dB axis and EQ gain axis are **different physical quantities** — mapp
 spectrum levels (-40..-90 dBFS bins) onto an EQ gain window (±30 dB) clamps
 everything to the floor and produces a blank analyzer that passes every unit test.
 Keep them on separate scales (see `AnalyzerView.h`'s dedicated analyzer dB window
-vs. the EQ gain window). Full incident writeup: PROJECT.md 함정 (이음새 버그).
+vs. the EQ gain window). Full incident writeup: docs/architecture.md 함정 (이음새 버그).
 
 ## Verification for any plugin change
 

@@ -1,6 +1,31 @@
 # Soothe3 functional parity work
 
-## Current integration checkpoint — 2026-10-19
+## Current naming checkpoint — 2026-10-20
+
+Source naming now uses `FixxySound`, `fixxy_add_plugin`, `FixxyLookAndFeel`
+and `fixxy` namespaces. AU factory prefixes become `Fixxy*AU`; bundle IDs,
+manufacturer/plugin codes and the host parameter surface remain unchanged.
+New preset writers use `.fixxyspectral` and `FixxySpectral` presetFormat; new
+host-state writers use `FIXXY_SPECTRAL_STATE`. The old `.lpngspectral`,
+`LpngSpectral` and `LPNGSPECTRAL_STATE` literals remain legacy reader inputs.
+All nine product formats, 18 console suites and ReferencePluginHost now build
+with zero compiler warnings/errors; the final workflow suite has 494 passing
+assertions. All three staged VST3s pass pluginval strictness 5. AU identities and
+new factory plist/export symbols match; VST3 class IDs and prepared parameter
+surfaces/latencies remain compatible with Oct 19. Fresh installed AU registry
+validation is not claimed: a staged-path host probe actually loaded the old
+installed component, as confirmed by its dynamic-loader trace.
+Soft/Hard staged renders match Oct 19 final baselines exactly (max error 0).
+Seventeen real-main/key native snapshots passed in
+`build/parity/fixxy-oct20-rename/`; root approved layout/theme/branding from the
+fresh sidechain minimum/collapsed views. Their debug `max 207% OVER` observation
+does not establish a real-time performance/deadline pass or DAW listening.
+The FixxySound no-install hook kept bundle copies under
+`build/fixxy-brand-staging`; all 27 installed bundle file hashes are unchanged.
+Validation did not install or publish; subsequent publication is tracked in git history. Full evidence and limitations:
+`fixxy-naming-verification-2026-10-20.md`.
+
+## Historical integration checkpoint — 2026-10-19
 
 Full soothe3 functional and sonic parity is **not complete**. This section
 supersedes earlier handoffs for current source/build status; do not restart
@@ -110,7 +135,7 @@ See `soothe3-hard-wola-port-report.md` for the numeric and audio-thread audit.
 
 ## Scope and evidence
 
-Continue the existing mono/stereo LpngSpectral product, preserving its cream,
+Continue the existing mono/stereo fixxy Spectral product, preserving its cream,
 ink, azure and ember palette. Target documented soothe3 behavior and measured
 responses; proprietary algorithm identity and perceptual equivalence are not
 established. Surround support is outside this mono/stereo pass. No commits.
@@ -315,7 +340,7 @@ green baseline. Current AU/VST3/Standalone builds succeeded; pluginval strictnes
 5 returned SUCCESS and `auval -v aufx Lpsp Uhyn` returned AU VALIDATION SUCCEEDED.
 These validate the existing audio engine plus initial workflow increment, not
 the replacement DSP or subsequent review fixes. Build copying updated the
-user-local LpngSpectral AU/VST3 bundles. Standalone's invalid post-link signature
+user-local legacy `LpngSpectral` AU/VST3 bundles. Standalone's invalid post-link signature
 was replaced with an ad-hoc signature and strict verification passed.
 
 Root visually inspected native signal snapshots at the minimum size, collapsed

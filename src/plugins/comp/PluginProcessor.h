@@ -8,7 +8,7 @@
 #include "dsp/CompressorNode.h"
 
 /**
-    LpngComp — feed-forward log-domain compressor product. Thin plugin shell over
+    fixxy Comp — feed-forward log-domain compressor product. Thin plugin shell over
     the JUCE-free CompressorNode (src/dsp/): APVTS params -> once-per-block smoothed
     Params -> node. GenericAudioProcessorEditor for v1 (custom UI later).
 

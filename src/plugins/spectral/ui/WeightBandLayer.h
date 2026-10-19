@@ -10,7 +10,7 @@
 
 #include "dsp/BandResponse.h"
 #include "dsp/SpectralWeight.h"
-#include "plugins/LpngLookAndFeel.h"
+#include "plugins/FixxyLookAndFeel.h"
 #include "plugins/spectral/SpectralWorkflow.h"
 #include "plugins/spectral/ui/SpectralDisplayMap.h"
 
@@ -122,7 +122,7 @@ public:
     }
 
     void paint(juce::Graphics& g) override {
-        namespace pl = lpng::palettelight;
+        namespace pl = fixxy::palettelight;
 
         // Composite weight curve: the ink token (dataSum), per docs/issues.md
         // DESIGN-DIRECTION — the weighting curve must be the highest-contrast
@@ -143,7 +143,7 @@ public:
 
         if (!anyPresent && !hasGhost) {
             g.setColour(pl::col(pl::textMuted).withAlpha(0.6f));
-            g.setFont(lpng::labelFont(lpng::metrics::kFontLabel));
+            g.setFont(fixxy::labelFont(fixxy::metrics::kFontLabel));
             g.drawText("Double-click to add a weight band", getLocalBounds(),
                        juce::Justification::centred);
         }
@@ -528,8 +528,8 @@ private:
 
     void drawDot(juce::Graphics& g, int band, juce::Point<float> c, bool selected,
                  bool enabled, float alphaMul = 1.0f) {
-        namespace pl = lpng::palettelight;
-        const auto colour = lpng::palettelight::bandColour(band);
+        namespace pl = fixxy::palettelight;
+        const auto colour = fixxy::palettelight::bandColour(band);
         const float r = selected ? 6.5f : 5.0f;
 
         if (selected) {
@@ -549,7 +549,7 @@ private:
     }
 
     void drawRangePins(juce::Graphics& g) {
-        namespace pl = lpng::palettelight;
+        namespace pl = fixxy::palettelight;
         const float loHz = apvts.getRawParameterValue("rangeLo")->load();
         const float hiHz = apvts.getRawParameterValue("rangeHi")->load();
         drawPin(g, map.freqToX(loHz), hoveredPin == 0 || pinDrag.pin == 0);
@@ -557,7 +557,7 @@ private:
     }
 
     void drawPin(juce::Graphics& g, float x, bool emphasised) {
-        namespace pl = lpng::palettelight;
+        namespace pl = fixxy::palettelight;
 
         // Faint hairline through the well as a position cue — owner's
         // complaint was the heavy tall bar, not having a cue at this x.

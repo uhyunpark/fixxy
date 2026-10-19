@@ -8,7 +8,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "dsp/SpectralNode.h"
-#include "plugins/LpngLookAndFeel.h"
+#include "plugins/FixxyLookAndFeel.h"
 #include "plugins/ui/SpectrumFifo.h"
 #include "plugins/ui/AnalyzerEngine.h"
 #include "plugins/spectral/ReductionPublisher.h"
@@ -106,7 +106,7 @@ public:
     }
 
     void paint(juce::Graphics& g) override {
-        namespace pl = lpng::palettelight;
+        namespace pl = fixxy::palettelight;
         auto well = getLocalBounds().toFloat();
 
         // Opaque contract: cover every pixel. The rounded well leaves the four
@@ -118,9 +118,9 @@ public:
 
         // White well with a stone hairline inset (no shadow — paper).
         g.setColour(pl::col(pl::displayWell));
-        g.fillRoundedRectangle(well, lpng::metrics::kCornerCard);
+        g.fillRoundedRectangle(well, fixxy::metrics::kCornerCard);
         g.setColour(pl::col(pl::hairline));
-        g.drawRoundedRectangle(well.reduced(0.5f), lpng::metrics::kCornerCard, 1.0f);
+        g.drawRoundedRectangle(well.reduced(0.5f), fixxy::metrics::kCornerCard, 1.0f);
 
         drawGrid(g);
         drawReductionBaseline(g);
@@ -162,7 +162,7 @@ private:
     // >=100%. Redrawn every 30 Hz tick with the rest of the view — no extra
     // repaint. REMOVE with the processor's callback-timing block.
     void drawCallbackLoad(juce::Graphics& g) {
-        namespace pl = lpng::palettelight;
+        namespace pl = fixxy::palettelight;
         const float last = cbLastPct.load(std::memory_order_relaxed);
         const float peak = cbMaxPct.load(std::memory_order_relaxed);
         juce::String txt = "cb " + juce::String(juce::roundToInt(last)) + "% | max " +
@@ -175,7 +175,7 @@ private:
             tok = pl::accent;
         }
         g.setColour(pl::col(tok));
-        g.setFont(lpng::labelFont(lpng::metrics::kFontSmall));
+        g.setFont(fixxy::labelFont(fixxy::metrics::kFontSmall));
         g.drawText(txt, static_cast<int>(map.x) + 4, static_cast<int>(map.y + map.h) - 16,
                    220, 14, juce::Justification::centredLeft);
     }
@@ -344,7 +344,7 @@ private:
     }
 
     void drawGrid(juce::Graphics& g) {
-        namespace pl = lpng::palettelight;
+        namespace pl = fixxy::palettelight;
         for (std::size_t i = 0; i < kGridFreqs.size(); ++i) {
             const float x = map.freqToX(kGridFreqs[i]);
             g.setColour(pl::col(kGridFreqs[i] == 1000.0f ? pl::gridMajor : pl::gridMinor));
@@ -361,14 +361,14 @@ private:
     // distinct from the spectrum's dBFS numerals (the analyzer lesson: two
     // vertical scales, never mixed). Ember-tinted so it reads as the action axis.
     void drawReductionBaseline(juce::Graphics& g) {
-        namespace pl = lpng::palettelight;
+        namespace pl = fixxy::palettelight;
         const float base = map.baselineY();
         const float cap = map.ribbonCapPx();
 
         g.setColour(pl::col(pl::tick));
         g.drawHorizontalLine(static_cast<int>(base), map.x, map.x + map.w);
 
-        g.setFont(lpng::labelFont(lpng::metrics::kFontSmall));
+        g.setFont(fixxy::labelFont(fixxy::metrics::kFontSmall));
         for (float redDb : kRibbonMarks) {
             const float y = base + spectralui::DisplayMap::ribbonExtentPx(redDb, cap);
             g.setColour(pl::col(pl::accentDim));
@@ -379,8 +379,8 @@ private:
     }
 
     void drawAxisText(juce::Graphics& g) {
-        namespace pl = lpng::palettelight;
-        g.setFont(lpng::labelFont(lpng::metrics::kFontSmall));
+        namespace pl = fixxy::palettelight;
+        g.setFont(fixxy::labelFont(fixxy::metrics::kFontSmall));
         // Frequency numerals along the top.
         g.setColour(pl::col(pl::textMuted));
         for (std::size_t i = 0; i < kGridFreqs.size(); ++i) {

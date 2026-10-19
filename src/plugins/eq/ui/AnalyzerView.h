@@ -92,7 +92,7 @@ private:
     // quantity with a different useful range. Program material sits around
     // -40..-90 dB per bin, nowhere near a +-30 dB gain window, so feeding one
     // through the other clamps every point to the bottom edge and the analyzer
-    // never draws (this was the ANALYZER-SCALE bug -- see PROJECT.md 함정
+    // never draws (this was the ANALYZER-SCALE bug -- see docs/architecture.md 함정
     // "이음새 버그", docs/issues.md). Every commercial EQ analyzer uses two
     // separate scales for exactly this reason. Only the y-axis differs; the x
     // (frequency) axis still comes from the shared CoordMap so the analyzer and

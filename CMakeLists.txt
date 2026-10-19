@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.25)
-project(LpngSound VERSION 0.1.0)
+project(FixxySound VERSION 0.1.0)
 
 # 빌드 타입 미지정 = CMake 기본값이 빈 값(-O0) — DAW에서 시스템 과부하를 일으킨다
-# (PROJECT.md 함정). 기본을 Release로 강제.
+# (docs/architecture.md 함정). 기본을 Release로 강제.
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
@@ -13,18 +13,18 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 add_subdirectory(external/JUCE SYSTEM)
 
-# Each classic effect ships as its own plugin product (see PROJECT.md — "제품
+# Each classic effect ships as its own plugin product (see docs/architecture.md — "제품
 # 구조"). They share the src/dsp/ node library. This function wraps the
 # per-target boilerplate that is identical across products; anything
 # product-specific (name, code, sources) stays an explicit argument.
-function(lpng_add_plugin)
+function(fixxy_add_plugin)
     set(oneValueArgs TARGET PRODUCT_NAME PLUGIN_CODE)
     set(multiValueArgs SOURCES)
     cmake_parse_arguments(ARG "" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
     juce_add_plugin(${ARG_TARGET}
         BUNDLE_ID "com.uhyun.${ARG_TARGET}"
-        AU_EXPORT_PREFIX "Lpng${ARG_TARGET}AU"
+        AU_EXPORT_PREFIX "Fixxy${ARG_TARGET}AU"
         COMPANY_NAME "fixxy"
         PLUGIN_MANUFACTURER_CODE Uhyn
         PLUGIN_CODE ${ARG_PLUGIN_CODE}
@@ -70,7 +70,7 @@ function(lpng_add_plugin)
     )
 endfunction()
 
-lpng_add_plugin(
+fixxy_add_plugin(
     TARGET EQ
     PRODUCT_NAME "fixxy EQ"
     PLUGIN_CODE Lpeq
@@ -90,13 +90,13 @@ lpng_add_plugin(
         src/dsp/MatchedCoeffs.h
 )
 
-lpng_add_plugin(
+fixxy_add_plugin(
     TARGET Comp
     PRODUCT_NAME "fixxy Comp"
     PLUGIN_CODE Lpcm
     SOURCES
         src/plugins/comp/PluginProcessor.cpp
-        src/plugins/LpngLookAndFeel.h
+        src/plugins/FixxyLookAndFeel.h
         src/plugins/comp/ui/CompMeterMap.h
         src/plugins/comp/ui/CompCurveMap.h
         src/plugins/comp/ui/LevelMeter.h
@@ -106,13 +106,13 @@ lpng_add_plugin(
         src/dsp/CompressorNode.h
 )
 
-lpng_add_plugin(
+fixxy_add_plugin(
     TARGET Spectral
     PRODUCT_NAME "fixxy Spectral"
     PLUGIN_CODE Lpsp
     SOURCES
         src/plugins/spectral/PluginProcessor.cpp
-        src/plugins/LpngLookAndFeel.h
+        src/plugins/FixxyLookAndFeel.h
         src/plugins/spectral/SpectralMix.h
         src/plugins/spectral/ReductionPublisher.h
         src/plugins/spectral/ui/SpectralDisplayMap.h
@@ -176,7 +176,7 @@ target_compile_features(ParamSchemaTest PRIVATE cxx_std_20)
 set_source_files_properties(test/param_schema_test.cpp PROPERTIES
     COMPILE_OPTIONS "-Wall;-Wextra;-Wconversion;-Wshadow")
 
-# Offline unit test: LpngComp editor UI math — meter scale mappers (GR
+# Offline unit test: fixxy Comp editor UI math — meter scale mappers (GR
 # magnitude vs dBFS level, the analyzer lesson applied to meters), transfer-
 # curve CompCurveMap round-trips, and CompressorNode::staticCurve refactor
 # equivalence. Plain C++, no JUCE — the mapped headers are deliberately
@@ -216,7 +216,7 @@ target_compile_definitions(SpectralCapScalarTest PRIVATE SPECTRALFFT_FORCE_SCALA
 set_source_files_properties(test/spectral_cap_node_test.cpp PROPERTIES
     COMPILE_OPTIONS "-Wall;-Wextra;-Wconversion;-Wshadow")
 
-# Offline unit test: the LpngSpectral editor UI/publish seams — DisplayMap's
+# Offline unit test: the fixxy Spectral editor UI/publish seams — DisplayMap's
 # three separate scales (freq log x, spectrum level dB, reduction ribbon extent),
 # the mix/delta/bypass blend algebra (SpectralMix.h), the ReductionPublisher
 # seqlock round-trip, and a publish round-trip through the real SpectralNode

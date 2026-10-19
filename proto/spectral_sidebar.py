@@ -840,7 +840,7 @@ def gate7_tilts(params):
     tilt_detail sign check at 8kHz vs 200Hz. Also verifies
     tau_to_alpha_arr (this file's new vectorized port) against the
     UNMODIFIED scalar compressor.tau_to_alpha point-by-point -- the
-    independent-reference check proto/CLAUDE.md requires for any new
+    independent-reference check proto/AGENTS.md requires for any new
     formula, even a "trivial" vectorization."""
     print("\n=== Test 7: tilt_attack / tilt_release / tilt_detail ===")
     ok = True

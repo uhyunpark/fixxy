@@ -1,4 +1,4 @@
-# soothe3 UI 분석 → LpngSpectral v2 이식 항목
+# soothe3 UI 분석 → fixxy Spectral v2 이식 항목
 
 소스: 소유자 스크린샷 2장 (2026-08-12, Factory default + 밴드 6개 상태).
 레이아웃 로직만 참고, 색/형태 트레이드드레스는 복제 금지 (AGPL/디자인 규칙 동일 적용).

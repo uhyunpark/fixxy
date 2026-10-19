@@ -14,8 +14,10 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include "SpectralStateFormat.h"
+
 /**
-    Message-thread workflow state for LpngSpectral.
+    Message-thread workflow state for Fixxy Spectral.
 
     This object is owned by SpectralProcessor, not its editor, so A/B slots and
     sidebar state survive closing and reopening the window. Snapshots contain
@@ -53,7 +55,7 @@ public:
     }
 
     static juce::Identifier stateType() { return {"WORKFLOW"}; }
-    static juce::Identifier processorStateType() { return {"LPNGSPECTRAL_STATE"}; }
+    static juce::Identifier processorStateType() { return {spectralstate::kProcessorStateType}; }
 
     juce::ValueTree createProcessorState() {
         const juce::ScopedLock lock(metadataLock);
@@ -76,7 +78,8 @@ public:
             return true;
         }
 
-        if (!restored.hasType(processorStateType())) return false;
+        if (!restored.hasType(processorStateType())
+            && !restored.hasType(spectralstate::kLegacyProcessorStateType)) return false;
         const auto parameters = restored.getChildWithName(apvts.state.getType());
         if (!parameters.isValid()) return false;
         if (!migrateParameters(restored, version)) return false;
@@ -198,7 +201,7 @@ public:
     juce::Result savePreset(const juce::File& file) {
         const juce::ScopedLock lock(metadataLock);
         auto snapshot = parameterSnapshot();
-        snapshot.setProperty("presetFormat", "LpngSpectral", nullptr);
+        snapshot.setProperty("presetFormat", spectralstate::kPresetFormat, nullptr);
         snapshot.setProperty("presetVersion", 3, nullptr);
         snapshot.setProperty("presetName", file.getFileNameWithoutExtension(), nullptr);
         snapshot.setProperty("bandPresence", static_cast<int>(currentPresenceMask()), nullptr);
@@ -598,7 +601,8 @@ private:
             return juce::Result::fail("This is not a fixxy Spectral preset");
 
         if (incoming.hasProperty("presetFormat")
-            && incoming["presetFormat"].toString() != "LpngSpectral")
+            && incoming["presetFormat"].toString() != spectralstate::kPresetFormat
+            && incoming["presetFormat"].toString() != spectralstate::kLegacyPresetFormat)
             return juce::Result::fail("The preset belongs to another product");
 
         if (incoming.hasProperty("presetVersion")) {

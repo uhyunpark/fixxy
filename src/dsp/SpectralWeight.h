@@ -7,7 +7,7 @@
 #include "dsp/BandResponse.h"
 
 /**
-    Shared contract for LpngSpectral's weight-curve feature: up to
+    Shared contract for fixxy Spectral's weight-curve feature: up to
     kMaxWeightBands user-drawn bands that will (once the DSP lands) bias the
     node's per-bin detection away from user-picked regions, plus the gate
     curve that fades a band's influence out smoothly beyond a user-set
@@ -16,7 +16,7 @@
     SINGLE SOURCE OF TRUTH: this header is shared by SpectralNode (audio
     thread), the editor's curve drawing (message thread), and the Python
     proto (proto/spectral_weight.py) that will derive the actual weight math.
-    The three must never diverge — see src/dsp/CLAUDE.md's "UI-facing math
+    The three must never diverge — see src/dsp/AGENTS.md's "UI-facing math
     shares a single source" convention (BandResponse.h precedent).
 
     SINGLE-SOURCE weight math lives here: `gateDb` (the [lo,hi] range gate) and

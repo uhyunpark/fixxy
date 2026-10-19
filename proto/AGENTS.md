@@ -1,4 +1,4 @@
-# proto/CLAUDE.md
+# proto/AGENTS.md
 
 Python prototyping stage: research -> numpy proto with independent numeric
 verification -> only then C++. A derivation without a passing assert-based
@@ -21,7 +21,7 @@ derivation. This has caught real errors before it reached C++:
 
 - A research-stage Butterworth pole-allocation formula (cos-form instead of
   sin-form) was wrong in a way that only an even-order coincidence hid — caught by
-  a scipy assert (PROJECT.md 함정).
+  a scipy assert (docs/architecture.md 함정).
 - A published reference summary (docs/eq_reference_guide.md) had two transcription
   errors (an Ivantsov φ-function numerator typo, an inverted sigma range) —
   caught only by numeric comparison against the original paper, not by re-reading

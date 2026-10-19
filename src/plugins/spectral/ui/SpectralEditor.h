@@ -10,17 +10,18 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "dsp/BandResponse.h"
-#include "plugins/LpngLookAndFeel.h"
+#include "plugins/FixxyLookAndFeel.h"
 #include "plugins/spectral/PluginProcessor.h"
+#include "plugins/spectral/SpectralStateFormat.h"
 #include "plugins/spectral/ui/SpectralAnalyzerView.h"
 #include "plugins/spectral/ui/WeightBandLayer.h"
 
 /**
-    LpngSpectral custom editor — the debut of the family's LIGHT visual language
+    fixxy Spectral custom editor — the debut of the family's LIGHT visual language
     (docs/design-reference.md, mockup variant B "Family Light"). Layout
     (resizable, default 1132x640):
 
-      header  : "LpngSpectral" strip (cream, hairline under)
+      header  : "fixxy Spectral" strip (cream, hairline under)
       body    : LEFT RAIL (stone) — hero DEPTH knob (ember = the action knob),
                 detail knob (azure), attack + release knobs; each with a value
                 chip. SIDEBAR (stone, soothe3-style collapsible column) — msMode
@@ -34,12 +35,12 @@
       bottom  : bypass + DELTA pills (delta = ember when active), mix % chip,
                 out dB chip.
 
-    Palette rule (LpngLookAndFeel light spec): DEPTH is the amount the processor
+    Palette rule (FixxyLookAndFeel light spec): DEPTH is the amount the processor
     acts by -> warm ember fill; detail/attack/release are cool azure; the ribbon
     and the active delta pill carry the ember action accent; the weight curve is
     ink (docs/issues.md DESIGN-DIRECTION), weight-band dots are per-band hues
     (palettelight::bandColour); everything else is monochrome paper. All chrome/
-    data colour comes from lpng::palettelight — no hardcoded hex here.
+    data colour comes from fixxy::palettelight — no hardcoded hex here.
 
     Soft/Hard selects the detector; quality and phase controls are not exposed.
 */
@@ -78,21 +79,21 @@ public:
             addAndMakeVisible(k.name);
             k.name.setText(kKnobDefs[i].title, juce::dontSendNotification);
             k.name.setJustificationType(juce::Justification::centred);
-            k.name.setFont(lpng::labelFont(kKnobDefs[i].hero ? lpng::metrics::kFontHeader
-                                                             : lpng::metrics::kFontLabel));
+            k.name.setFont(fixxy::labelFont(kKnobDefs[i].hero ? fixxy::metrics::kFontHeader
+                                                             : fixxy::metrics::kFontLabel));
             k.name.setColour(juce::Label::textColourId,
-                             lpng::palettelight::col(kKnobDefs[i].hero
-                                                         ? lpng::palettelight::textPrimary
-                                                         : lpng::palettelight::textSecondary));
+                             fixxy::palettelight::col(kKnobDefs[i].hero
+                                                         ? fixxy::palettelight::textPrimary
+                                                         : fixxy::palettelight::textSecondary));
 
             addAndMakeVisible(k.slider);
             k.slider.setComponentID(kKnobDefs[i].paramId);
             k.slider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
             k.slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 56, 18);
             k.slider.setColour(juce::Slider::rotarySliderFillColourId,
-                               lpng::palettelight::col(kKnobDefs[i].action
-                                                           ? lpng::palettelight::accent
-                                                           : lpng::palettelight::controlFill));
+                               fixxy::palettelight::col(kKnobDefs[i].action
+                                                           ? fixxy::palettelight::accent
+                                                           : fixxy::palettelight::controlFill));
             k.slider.setTooltip(kKnobDefs[i].tooltip);
             k.attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
                 proc.apvts, kKnobDefs[i].paramId, k.slider);
@@ -117,14 +118,14 @@ public:
         bypassButton.setButtonText("bypass");
         bypassButton.setTooltip("Listen to the latency-aligned original signal.");
         bypassButton.setColour(juce::ToggleButton::tickColourId,
-                               lpng::palettelight::col(lpng::palettelight::pillOnBg));  // ink
+                               fixxy::palettelight::col(fixxy::palettelight::pillOnBg));  // ink
         bypassButton.onClick = [this] { setBoolGestured("bypass", bypassButton.getToggleState()); };
 
         addAndMakeVisible(deltaButton);
         deltaButton.setButtonText("delta");
         deltaButton.setTooltip("Listen to the component removed by the processor.");
         deltaButton.setColour(juce::ToggleButton::tickColourId,
-                              lpng::palettelight::col(lpng::palettelight::accent));  // ember
+                              fixxy::palettelight::col(fixxy::palettelight::accent));  // ember
         deltaButton.onClick = [this] { setBoolGestured("delta", deltaButton.getToggleState()); };
 
         for (std::size_t i = 0; i < kNumChips; ++i) {
@@ -132,9 +133,9 @@ public:
             addAndMakeVisible(c.name);
             c.name.setText(kChipDefs[i].title, juce::dontSendNotification);
             c.name.setJustificationType(juce::Justification::centredRight);
-            c.name.setFont(lpng::labelFont());
+            c.name.setFont(fixxy::labelFont());
             c.name.setColour(juce::Label::textColourId,
-                             lpng::palettelight::col(lpng::palettelight::textSecondary));
+                             fixxy::palettelight::col(fixxy::palettelight::textSecondary));
 
             addAndMakeVisible(c.slider);
             c.slider.setSliderStyle(juce::Slider::LinearBar);
@@ -175,9 +176,9 @@ public:
             addAndMakeVisible(c.name);
             c.name.setText(kSidebarChipDefs[i].title, juce::dontSendNotification);
             c.name.setJustificationType(juce::Justification::centredRight);
-            c.name.setFont(lpng::labelFont());
+            c.name.setFont(fixxy::labelFont());
             c.name.setColour(juce::Label::textColourId,
-                             lpng::palettelight::col(lpng::palettelight::textSecondary));
+                             fixxy::palettelight::col(fixxy::palettelight::textSecondary));
 
             addAndMakeVisible(c.slider);
             c.slider.setSliderStyle(juce::Slider::LinearBar);
@@ -216,9 +217,9 @@ public:
         for (auto* chip : {&bandFreqChip, &bandGainChip, &bandQChip}) {
             addChildComponent(chip->name);
             chip->name.setJustificationType(juce::Justification::centredRight);
-            chip->name.setFont(lpng::labelFont());
+            chip->name.setFont(fixxy::labelFont());
             chip->name.setColour(juce::Label::textColourId,
-                                 lpng::palettelight::col(lpng::palettelight::textSecondary));
+                                 fixxy::palettelight::col(fixxy::palettelight::textSecondary));
             addChildComponent(chip->slider);
             chip->slider.setSliderStyle(juce::Slider::LinearBar);
             chip->slider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
@@ -275,7 +276,7 @@ public:
     }
 
     void paint(juce::Graphics& g) override {
-        namespace pl = lpng::palettelight;
+        namespace pl = fixxy::palettelight;
         g.fillAll(pl::col(pl::window));
 
         auto r = getLocalBounds();
@@ -342,8 +343,8 @@ public:
         g.drawHorizontalLine(bottom.getY(), 0.0f, static_cast<float>(getWidth()));
 
         g.setColour(pl::col(pl::textPrimary));
-        g.setFont(lpng::headerFont(16.0f));
-        g.drawText(JucePlugin_Name, header.removeFromLeft(kRailW).reduced(2 * lpng::metrics::kSpacing, 0),
+        g.setFont(fixxy::headerFont(16.0f));
+        g.drawText(JucePlugin_Name, header.removeFromLeft(kRailW).reduced(2 * fixxy::metrics::kSpacing, 0),
                    juce::Justification::centredLeft);
 
         // A/B selector uses the same quiet ink pill as stereo mode. The copy
@@ -361,7 +362,7 @@ public:
     }
 
     void resized() override {
-        using namespace lpng::metrics;
+        using namespace fixxy::metrics;
         auto r = getLocalBounds();
         auto header = r.removeFromTop(kHeaderH);
         auto bottom = r.removeFromBottom(kBottomH);
@@ -431,7 +432,7 @@ private:
     }
 
     void configureWorkflowToolbar() {
-        namespace pl = lpng::palettelight;
+        namespace pl = fixxy::palettelight;
         for (auto* button : {&presetButton, &undoButton, &redoButton, &slotAButton,
                              &slotBButton, &copyButton, &sidebarButton, &helpButton,
                              &sidechainButton, &sidechainListenButton}) {
@@ -511,7 +512,7 @@ private:
         sidechainMeter.setComponentID("sidechainLevel");
         sidechainMeter.setTitle("Sidechain input level");
         sidechainMeter.setJustificationType(juce::Justification::centred);
-        sidechainMeter.setFont(lpng::labelFont(10.0f));
+        sidechainMeter.setFont(fixxy::labelFont(10.0f));
         sidechainMeter.setColour(juce::Label::textColourId, pl::col(pl::textPrimary));
         sidechainMeter.setLevelDb(proc.sidechainLevelDb.load(std::memory_order_relaxed));
 
@@ -569,7 +570,9 @@ private:
 
     void beginOpenPreset() {
         fileChooser = std::make_unique<juce::FileChooser>(
-            "Open fixxy Spectral preset", presetDirectory(), "*.lpngspectral;*.xml");
+            "Open fixxy Spectral preset", presetDirectory(),
+            juce::String("*") + spectralstate::kPresetExtension + ";*"
+                + spectralstate::kLegacyPresetExtension + ";*.xml");
         fileChooser->launchAsync(juce::FileBrowserComponent::openMode
                                      | juce::FileBrowserComponent::canSelectFiles,
                                  [safe = juce::Component::SafePointer<SpectralEditor>(this)](
@@ -588,8 +591,9 @@ private:
 
     void beginSavePreset() {
         fileChooser = std::make_unique<juce::FileChooser>(
-            "Save fixxy Spectral preset", presetDirectory().getChildFile("fixxy Spectral.lpngspectral"),
-            "*.lpngspectral");
+            "Save fixxy Spectral preset",
+            presetDirectory().getChildFile(juce::String("fixxy Spectral") + spectralstate::kPresetExtension),
+            juce::String("*") + spectralstate::kPresetExtension);
         fileChooser->launchAsync(juce::FileBrowserComponent::saveMode
                                      | juce::FileBrowserComponent::canSelectFiles
                                      | juce::FileBrowserComponent::warnAboutOverwriting,
@@ -598,8 +602,8 @@ private:
             if (safe == nullptr) return;
             auto file = chooser.getResult();
             if (file != juce::File()) {
-                if (!file.hasFileExtension(".lpngspectral"))
-                    file = file.withFileExtension(".lpngspectral");
+                if (!file.hasFileExtension(spectralstate::kPresetExtension))
+                    file = file.withFileExtension(spectralstate::kPresetExtension);
                 safe->lastPresetDirectory = file.getParentDirectory();
                 const auto result = safe->proc.workflow.savePreset(file);
                 if (result.failed()) safe->showWorkflowError("Preset not saved", result);
@@ -621,7 +625,7 @@ private:
     }
 
     void updateWorkflowControls() {
-        namespace pl = lpng::palettelight;
+        namespace pl = fixxy::palettelight;
         const auto observedRevision = proc.workflow.revision();
         const bool slotB = proc.workflow.activeSlot() == SpectralWorkflow::Slot::b;
         slotAButton.setColour(juce::TextButton::textColourOffId,
@@ -667,7 +671,7 @@ private:
     }
 
     void drawCollapsedSidebarIndicators(juce::Graphics& g, juce::Rectangle<int> sidebar) {
-        namespace pl = lpng::palettelight;
+        namespace pl = fixxy::palettelight;
         const std::array<bool, 3> changed{{
             parameterDiffersFromDefault("msMode") || parameterDiffersFromDefault("linkPct")
                 || parameterDiffersFromDefault("focus"),
@@ -738,21 +742,21 @@ private:
         HelpPanel() { setInterceptsMouseClicks(false, false); }
 
         void paint(juce::Graphics& g) override {
-            namespace pl = lpng::palettelight;
+            namespace pl = fixxy::palettelight;
             const auto bounds = getLocalBounds().toFloat();
             g.setColour(pl::col(pl::panel).withAlpha(0.96f));
-            g.fillRoundedRectangle(bounds, lpng::metrics::kCornerCard);
+            g.fillRoundedRectangle(bounds, fixxy::metrics::kCornerCard);
             g.setColour(pl::col(pl::axis));
-            g.drawRoundedRectangle(bounds.reduced(0.5f), lpng::metrics::kCornerCard, 1.0f);
+            g.drawRoundedRectangle(bounds.reduced(0.5f), fixxy::metrics::kCornerCard, 1.0f);
 
             auto text = getLocalBounds().reduced(14, 10);
             g.setColour(pl::col(pl::textPrimary));
-            g.setFont(lpng::headerFont(14.0f));
+            g.setFont(fixxy::headerFont(14.0f));
             g.drawText(selectedBand >= 0 ? "Band " + juce::String(selectedBand + 1)
                                          : "Quick start",
                        text.removeFromTop(22), juce::Justification::centredLeft);
             g.setColour(pl::col(pl::textSecondary));
-            g.setFont(lpng::labelFont(lpng::metrics::kFontLabel));
+            g.setFont(fixxy::labelFont(fixxy::metrics::kFontLabel));
             const auto guidance = selectedBand >= 0
                 ? juce::String("Enabled bypasses this band without losing it. Shape, frequency, "
                                "depth and Q tune its contribution; delete frees the slot.")
@@ -779,8 +783,8 @@ private:
     // Soothe-style "—stereo—" group title: centred muted uppercase text
     // flanked by two short axis-coloured hairlines.
     void drawSidebarGroupTitle(juce::Graphics& g, juce::Rectangle<int> r, const juce::String& text) {
-        namespace pl = lpng::palettelight;
-        g.setFont(lpng::labelFont(lpng::metrics::kFontSmall));
+        namespace pl = fixxy::palettelight;
+        g.setFont(fixxy::labelFont(fixxy::metrics::kFontSmall));
         auto label = text.toUpperCase();
         const int textW = juce::GlyphArrangement::getStringWidthInt(g.getCurrentFont(), label) + 4;
         const int cx = r.getCentreX(), cy = r.getCentreY();
@@ -907,7 +911,7 @@ private:
         updateButtonStates();
 
         bandOnButton.setColour(juce::ToggleButton::tickColourId,
-                               lpng::palettelight::bandColour(selectedBand));
+                               fixxy::palettelight::bandColour(selectedBand));
 
         updateGainChipEnablement();
     }
@@ -927,7 +931,7 @@ private:
     // from the constructor for the initial state, and from handleAsyncUpdate()
     // whenever msMode changes via undo/preset load/host automation.
     void updateMsModeStyling() {
-        namespace pl = lpng::palettelight;
+        namespace pl = fixxy::palettelight;
         const bool ms = proc.apvts.getRawParameterValue("msMode")->load() > 0.5f;
         segLR.setColour(juce::TextButton::textColourOffId, pl::col(ms ? pl::pillFgOff : pl::pillOnFg));
         segMS.setColour(juce::TextButton::textColourOffId, pl::col(ms ? pl::pillOnFg : pl::pillFgOff));
@@ -935,7 +939,7 @@ private:
     }
 
     void updateDetectionStyling() {
-        namespace pl = lpng::palettelight;
+        namespace pl = fixxy::palettelight;
         const bool hard = proc.apvts.getRawParameterValue("detectionMode")->load() > 0.5f;
         segSoft.setColour(juce::TextButton::textColourOffId, pl::col(hard ? pl::pillFgOff : pl::pillOnFg));
         segHard.setColour(juce::TextButton::textColourOffId, pl::col(hard ? pl::pillOnFg : pl::pillFgOff));
@@ -1032,7 +1036,7 @@ private:
         "Bell", "Low Shelf", "High Shelf", "Tilt", "Notch", "Bandpass", "Lowpass", "Highpass"};
 
     SpectralProcessor& proc;
-    lpng::LpngLookAndFeelLight lnf;  // must outlive the children below
+    fixxy::FixxyLookAndFeelLight lnf;  // must outlive the children below
     juce::TooltipWindow tooltipWindow{this, 600};
 
     juce::TextButton presetButton, undoButton, redoButton;
@@ -1048,7 +1052,7 @@ private:
             repaint();
         }
         void paint(juce::Graphics& g) override {
-            namespace pl = lpng::palettelight;
+            namespace pl = fixxy::palettelight;
             const auto bounds = getLocalBounds().toFloat();
             g.setColour(pl::col(pl::pillTrack));
             g.fillRoundedRectangle(bounds, 3.0f);
@@ -1095,16 +1099,16 @@ private:
         juce::Rectangle<float> badgeBounds;
 
         void paint(juce::Graphics& g) override {
-            namespace pl = lpng::palettelight;
+            namespace pl = fixxy::palettelight;
             const auto bounds = getLocalBounds().toFloat();
             g.setColour(pl::col(pl::panel));
-            g.fillRoundedRectangle(bounds, lpng::metrics::kCornerCard);
+            g.fillRoundedRectangle(bounds, fixxy::metrics::kCornerCard);
             g.setColour(pl::col(pl::axis));
-            g.drawRoundedRectangle(bounds.reduced(0.5f), lpng::metrics::kCornerCard, 1.0f);
+            g.drawRoundedRectangle(bounds.reduced(0.5f), fixxy::metrics::kCornerCard, 1.0f);
             g.setColour(pl::bandColour(selectedBand));
             g.fillEllipse(badgeBounds);
             g.setColour(pl::col(pl::textPrimary));
-            g.setFont(lpng::labelFont(lpng::metrics::kFontLabel).boldened());
+            g.setFont(fixxy::labelFont(fixxy::metrics::kFontLabel).boldened());
             g.drawText(juce::String(selectedBand + 1), badgeBounds.toNearestInt(),
                        juce::Justification::centred);
         }

@@ -8,19 +8,19 @@ description: Use when implementing any new DSP feature (filter, compressor, effe
 Every new DSP feature moves through three stages, each a separate subagent. Never skip a stage; never combine stages into one agent.
 
 ## Stage 1 — Research (model: opus, background)
-- Input: the feature request + relevant papers/docs (check docs/ first; PROJECT.md lists the paper stack).
+- Input: the feature request + relevant papers/docs (check docs/ first; docs/architecture.md lists the paper stack).
 - The agent reads papers/references (AGPL repos like ZL Audio: READ ONLY, extract design decisions in prose/formulas, never copy code) and returns implementation-ready notes: exact formulas, conventions, magic constants, known traps.
 - Output is ground truth for Stage 2 — but it is NOT trusted yet.
 
 ## Stage 2 — Python proto (model: sonnet, background)
-- Read proto/CLAUDE.md for how protos run and the house style; don't restate it here.
+- Read proto/AGENTS.md for how protos run and the house style; don't restate it here.
 - Write proto/<feature>.py using ./proto/.venv/bin/python (numpy/scipy/matplotlib pinned in proto/requirements.txt).
 - MANDATORY: assert-based verification against an INDEPENDENT reference (scipy.signal, analog prototype evaluation, closed-form checks). Research formulas have been wrong before (Butterworth cos-vs-sin — caught only by the scipy assert). PASS/FAIL printed with numbers.
 - Where audible behavior matters, render WAVs (proto/out/) and plots for the owner to hear/see.
 - A failed assert means fix the formula (and report the correction), not loosen the tolerance.
 
 ## Stage 3 — C++ port (model: opus, background)
-- Read src/dsp/CLAUDE.md, src/plugins/CLAUDE.md, and test/CLAUDE.md for the node-library contract, plugin-layer conventions, and how to add a console test; don't restate them here.
+- Read src/dsp/AGENTS.md, src/plugins/AGENTS.md, and test/AGENTS.md for the node-library contract, plugin-layer conventions, and how to add a console test; don't restate them here.
 - Port from the VERIFIED proto only — never re-derive.
 - Coefficient recompute outside the per-sample loop; smooth every parameter.
 - MANDATORY report sections: explicit processBlock audit (allocation/locks/IO/logging/bounded work), numeric spot-checks vs the proto's numbers, clean build (zero warnings on our sources), pluginval strictness 5 SUCCESS.

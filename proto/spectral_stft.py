@@ -67,7 +67,7 @@ what Stage 4 ports to a real-time C++ SpectralNode):
                       prepare(), not per-frame).
   All state is fixed-size / preallocated except `in_fifo`, which in the C++
   port becomes a small ring buffer (no runtime allocation on the audio
-  thread -- see CLAUDE.md Non-Negotiables). fs does not appear anywhere in
+  thread -- see AGENTS.md Non-Negotiables). fs does not appear anywhere in
   this state: framing is purely sample-domain.
 
 LATENCY -- derivation, the exact formula, AND A BUG THIS FILE FOUND: for

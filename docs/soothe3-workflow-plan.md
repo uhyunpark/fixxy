@@ -1,7 +1,7 @@
-# LpngSpectral workflow parity plan
+# fixxy Spectral workflow parity plan
 
 This plan follows the working sequence described in the official soothe3 manual,
-without copying soothe3's appearance. LpngSpectral keeps its existing cream,
+without copying soothe3's appearance. fixxy Spectral keeps its existing cream,
 ink, azure, and ember language: the spectrum remains the visual centre, ember
 means processing action, azure means signal/control data, and toolbar chrome is
 neutral.
@@ -47,10 +47,13 @@ changed `RangedAudioParameter` using `beginChangeGesture()`,
 `setValueNotifyingHost()`, and `endChangeGesture()`. A final `copyState()` records
 the APVTS ValueTree changes in the same transaction.
 
-Processor host-state serialization uses a `LPNGSPECTRAL_STATE` wrapper with
+Processor host-state serialization writes a `FIXXY_SPECTRAL_STATE` wrapper with
 sibling `PARAMETERS` and `WORKFLOW` children. `WORKFLOW` contains the two flat
 parameter snapshots, active slot, preset identity, and side-panel state. The
-processor must still accept the legacy bare `PARAMETERS` root. Workflow metadata
+processor must still accept the legacy `LPNGSPECTRAL_STATE` wrapper and bare
+`PARAMETERS` root. New preset files use `.fixxyspectral` and the `FixxySpectral`
+presetFormat; `.lpngspectral` and `LpngSpectral` remain legacy reader inputs only.
+Workflow metadata
 is removed before APVTS replacement so snapshots cannot recursively contain
 session state.
 

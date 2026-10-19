@@ -127,18 +127,23 @@ void testLegacyBareStateAddsSoftWithoutRenormalisingExistingParameters() {
 void testLegacyWrappedStateMigratesBothSlotsAndCleanSnapshots() {
     SpectralProcessor source;
     const auto presetA = juce::File::getSpecialLocation(juce::File::tempDirectory)
-                             .getNonexistentChildFile("lpng-legacy-slot-a", ".lpngspectral", false);
+                             .getNonexistentChildFile("fixxy-legacy-slot-a", ".fixxyspectral", false);
     const auto presetB = juce::File::getSpecialLocation(juce::File::tempDirectory)
-                             .getNonexistentChildFile("lpng-legacy-slot-b", ".lpngspectral", false);
+                             .getNonexistentChildFile("fixxy-legacy-slot-b", ".fixxyspectral", false);
+    source.workflow.createBand(0, 120.0f, 0.0f);
+    setParam(source, "wband0On", 0.0f);
     setParam(source, "depth", 2.0f);
     check(source.workflow.savePreset(presetA).wasOk(), "legacy slot A identity saves");
     setParam(source, "depth", 3.0f);
     source.workflow.selectSlot(SpectralWorkflow::Slot::b);
+    source.workflow.createBand(1, 1800.0f, 2.0f);
+    setParam(source, "wband1On", 0.0f);
     setParam(source, "depth", 8.0f);
     check(source.workflow.savePreset(presetB).wasOk(), "legacy slot B identity saves");
     setParam(source, "output", -2.0f);
     source.workflow.setSidebarExpanded(false);
-    auto legacy = source.workflow.createProcessorState();
+    juce::ValueTree legacy("LPNGSPECTRAL_STATE");
+    legacy.copyPropertiesAndChildrenFrom(source.workflow.createProcessorState(), nullptr);
     legacy.setProperty("stateVersion", 1, nullptr);
     removeParameterRecursively(legacy, "detectionMode");
     removeParameterRecursively(legacy, "externalSidechain");
@@ -152,28 +157,41 @@ void testLegacyWrappedStateMigratesBothSlotsAndCleanSnapshots() {
           "legacy wrapper retains active B identity");
     check(!restored.workflow.isSidebarExpanded(), "legacy wrapper retains sidebar metadata");
     check(restored.workflow.currentPresetName() == presetB.getFileNameWithoutExtension()
-              && restored.workflow.isCurrentPresetDirty(),
-          "legacy wrapper retains B preset clean/dirty identity");
+              && restored.workflow.isCurrentPresetDirty() && restored.workflow.isBandPresent(1)
+              && !restored.workflow.isBandPresent(0),
+          "legacy wrapper retains B preset clean/dirty identity and bypassed presence");
     restored.workflow.selectSlot(SpectralWorkflow::Slot::a);
     checkNear(getParam(restored, "detectionMode"), 0.0f, "legacy inactive A snapshot migrates to Soft");
     checkNear(getParam(restored, "depth"), 3.0f, "legacy inactive A values survive migration");
     check(restored.workflow.currentPresetName() == presetA.getFileNameWithoutExtension()
-              && restored.workflow.isCurrentPresetDirty(),
-          "legacy wrapper migrates A clean snapshot without changing dirty identity");
+              && restored.workflow.isCurrentPresetDirty() && restored.workflow.isBandPresent(0)
+              && !restored.workflow.isBandPresent(1),
+          "legacy wrapper migrates A clean snapshot without changing dirty identity or presence");
+    setParam(restored, "depth", 2.0f);
+    check(!restored.workflow.isCurrentPresetDirty(), "legacy A clean values and presence survive migration");
+    restored.workflow.selectSlot(SpectralWorkflow::Slot::b);
+    setParam(restored, "output", 0.0f);
+    check(!restored.workflow.isCurrentPresetDirty(), "legacy B clean values and presence survive migration");
     check(presetA.deleteFile(), "legacy slot A preset removed");
     check(presetB.deleteFile(), "legacy slot B preset removed");
 }
 
 void testLegacyPresetsAddSoftAndModernHardRoundTrips() {
     SpectralProcessor source;
+    check(juce::String(spectralstate::kPresetExtension) == ".fixxyspectral",
+          "new preset file default extension is .fixxyspectral");
+    check(juce::String(spectralstate::kLegacyPresetExtension) == ".lpngspectral",
+          "legacy preset file extension remains available for reads");
     const auto directory = juce::File::getSpecialLocation(juce::File::tempDirectory);
-    const auto legacyV1 = directory.getNonexistentChildFile("lpng-legacy-v1", ".lpngspectral", false);
-    const auto legacyUnversioned = directory.getNonexistentChildFile("lpng-legacy-unversioned", ".lpngspectral", false);
-    const auto modern = directory.getNonexistentChildFile("lpng-modern-hard", ".lpngspectral", false);
+    const auto legacyV1 = directory.getNonexistentChildFile("fixxy-legacy-v1", ".lpngspectral", false);
+    const auto legacyUnversioned = directory.getNonexistentChildFile("fixxy-legacy-unversioned", ".lpngspectral", false);
+    const auto legacyModern = directory.getNonexistentChildFile("fixxy-legacy-modern", ".lpngspectral", false);
+    const auto modern = directory.getNonexistentChildFile("fixxy-modern-hard", ".fixxyspectral", false);
     setParam(source, "depth", 4.0f);
     check(source.workflow.savePreset(legacyV1).wasOk(), "legacy v1 source preset saves");
     auto legacyXml = juce::XmlDocument::parse(legacyV1);
     auto legacyTree = juce::ValueTree::fromXml(*legacyXml);
+    legacyTree.setProperty("presetFormat", "LpngSpectral", nullptr);
     legacyTree.setProperty("presetVersion", 1, nullptr);
     removeParameterRecursively(legacyTree, "detectionMode");
     removeParameterRecursively(legacyTree, "externalSidechain");
@@ -203,17 +221,30 @@ void testLegacyPresetsAddSoftAndModernHardRoundTrips() {
     check(source.workflow.savePreset(modern).wasOk(), "modern Hard preset saves");
     auto modernXml = juce::XmlDocument::parse(modern);
     const auto modernTree = juce::ValueTree::fromXml(*modernXml);
+    check(modernTree["presetFormat"].toString() == "FixxySpectral",
+          "new presets declare the FixxySpectral brand");
     check(static_cast<int>(modernTree["presetVersion"]) == 3,
           "new presets declare format version 3");
     setParam(target, "detectionMode", 0.0f);
     check(target.workflow.loadPreset(modern).wasOk(), "modern Hard preset loads");
     checkNear(getParam(target, "detectionMode"), 1.0f, "modern preset recalls Hard");
+    for (int version : {2, 3}) {
+        auto legacyModernTree = modernTree.createCopy();
+        legacyModernTree.setProperty("presetFormat", "LpngSpectral", nullptr);
+        legacyModernTree.setProperty("presetVersion", version, nullptr);
+        check(legacyModern.replaceWithText(legacyModernTree.createXml()->toString()),
+              "legacy-branded modern preset fixture writes with the legacy extension");
+        setParam(target, "detectionMode", 0.0f);
+        check(target.workflow.loadPreset(legacyModern).wasOk(), "legacy-branded version 2/3 preset loads");
+        checkNear(getParam(target, "detectionMode"), 1.0f, "legacy-branded version 2/3 preset recalls Hard");
+    }
 
     source.workflow.copyActiveToOther();
     source.workflow.selectSlot(SpectralWorkflow::Slot::b);
     setParam(source, "detectionMode", 0.0f);
     source.workflow.selectSlot(SpectralWorkflow::Slot::a);
     auto state = source.workflow.createProcessorState();
+    check(state.hasType("FIXXY_SPECTRAL_STATE"), "new host state declares the Fixxy processor root");
     check(static_cast<int>(state["stateVersion"]) == 3,
           "new host state declares format version 3");
     SpectralProcessor hostRestored;
@@ -224,6 +255,7 @@ void testLegacyPresetsAddSoftAndModernHardRoundTrips() {
 
     check(legacyV1.deleteFile(), "legacy v1 preset removed");
     check(legacyUnversioned.deleteFile(), "legacy unversioned preset removed");
+    check(legacyModern.deleteFile(), "legacy-branded modern preset removed");
     check(modern.deleteFile(), "modern Hard preset removed");
 }
 
@@ -242,6 +274,11 @@ void testMalformedModernModeIsRejectedAtomically() {
           "modern host state missing detectionMode is rejected");
     checkNear(getParam(target, "depth"), 7.0f, "rejected host state cannot partially change depth");
     checkNear(getParam(target, "detectionMode"), 1.0f, "rejected host state cannot change mode");
+    juce::ValueTree legacyMalformed("LPNGSPECTRAL_STATE");
+    legacyMalformed.copyPropertiesAndChildrenFrom(modernState, nullptr);
+    check(!target.workflow.restoreProcessorState(legacyMalformed),
+          "legacy-branded version 2 host state missing detectionMode is rejected");
+    checkNear(getParam(target, "depth"), 7.0f, "legacy-branded rejected host state cannot change depth");
     for (const auto* snapshot : {"CURRENT", "CLEAN"}) {
         auto incomplete = source.workflow.createProcessorState();
         incomplete.setProperty("stateVersion", 2, nullptr);
@@ -253,7 +290,7 @@ void testMalformedModernModeIsRejectedAtomically() {
     }
 
     const auto preset = juce::File::getSpecialLocation(juce::File::tempDirectory)
-                            .getNonexistentChildFile("lpng-modern-invalid-mode", ".lpngspectral", false);
+                            .getNonexistentChildFile("fixxy-modern-invalid-mode", ".fixxyspectral", false);
     check(source.workflow.savePreset(preset).wasOk(), "modern invalid-mode source preset saves");
     auto xml = juce::XmlDocument::parse(preset);
     auto tree = juce::ValueTree::fromXml(*xml);
@@ -283,10 +320,15 @@ void testSidechainStateVersionsMigrateAllSnapshotsAtomically() {
     setParam(source, "wband0On", 0.0f);
     setParam(source, "detectionMode", 1.0f);
     const auto preset = juce::File::getSpecialLocation(juce::File::tempDirectory)
-                            .getNonexistentChildFile("fixxy-sidechain-state", ".lpngspectral", false);
+                            .getNonexistentChildFile("fixxy-sidechain-state", ".fixxyspectral", false);
     check(source.workflow.savePreset(preset).wasOk(), "sidechain migration identity preset saves");
     setParam(source, "depth", 7.0f);
-    auto legacy = source.workflow.createProcessorState();
+    source.workflow.copyActiveToOther();
+    source.workflow.selectSlot(SpectralWorkflow::Slot::b);
+    setParam(source, "depth", 8.0f);
+    source.workflow.selectSlot(SpectralWorkflow::Slot::a);
+    juce::ValueTree legacy("LPNGSPECTRAL_STATE");
+    legacy.copyPropertiesAndChildrenFrom(source.workflow.createProcessorState(), nullptr);
     legacy.setProperty("stateVersion", 2, nullptr);
     removeParameterRecursively(legacy, "externalSidechain");
     removeParameterRecursively(legacy, "sidechainListen");
@@ -302,6 +344,14 @@ void testSidechainStateVersionsMigrateAllSnapshotsAtomically() {
               && target.workflow.isCurrentPresetDirty() && target.workflow.isBandPresent(0),
           "version 2 migration preserves identity dirty baseline and bypassed band presence");
     check(legacy.createXml()->toString() == legacyXml, "migration does not mutate caller-owned input tree");
+    target.workflow.selectSlot(SpectralWorkflow::Slot::b);
+    checkNear(getParam(target, "depth"), 8.0f, "version 2 legacy wrapper retains inactive B values");
+    check(target.workflow.currentPresetName() == preset.getFileNameWithoutExtension()
+              && target.workflow.isCurrentPresetDirty() && target.workflow.isBandPresent(0),
+          "version 2 legacy wrapper retains inactive B identity dirty baseline and presence");
+    setParam(target, "depth", 5.0f);
+    check(!target.workflow.isCurrentPresetDirty(), "version 2 legacy wrapper retains B clean values and presence");
+    target.workflow.selectSlot(SpectralWorkflow::Slot::a);
     auto migrated = target.workflow.createProcessorState();
     const auto workflow = migrated.getChildWithName("WORKFLOW");
     for (const auto* slot : {"SLOT_A", "SLOT_B"}) {
@@ -479,7 +529,7 @@ void testGroupedUiEditsPreserveUnrelatedAutomation() {
 void testPresetAndFactoryLoadsAreUndoable() {
     SpectralProcessor processor;
     const auto preset = juce::File::getSpecialLocation(juce::File::tempDirectory)
-                            .getNonexistentChildFile("lpng-spectral-workflow", ".lpngspectral", false);
+                            .getNonexistentChildFile("fixxy-spectral-workflow", ".fixxyspectral", false);
 
     setParam(processor, "depth", 3.0f);
     setParam(processor, "output", -6.0f);
@@ -512,8 +562,8 @@ void testPresetAndFactoryLoadsAreUndoable() {
 void testPresetUndoRestoresIdentityAndCleanBaseline() {
     SpectralProcessor processor;
     const auto temporaryDirectory = juce::File::getSpecialLocation(juce::File::tempDirectory);
-    const auto presetA = temporaryDirectory.getNonexistentChildFile("lpng-identity-a", ".lpngspectral", false);
-    const auto presetB = temporaryDirectory.getNonexistentChildFile("lpng-identity-b", ".lpngspectral", false);
+    const auto presetA = temporaryDirectory.getNonexistentChildFile("fixxy-identity-a", ".fixxyspectral", false);
+    const auto presetB = temporaryDirectory.getNonexistentChildFile("fixxy-identity-b", ".fixxyspectral", false);
     processor.workflow.createBand(0, 120.0f, 0.0f);
     setParam(processor, "wband0On", 0.0f);
     setParam(processor, "depth", 3.0f);
@@ -859,7 +909,7 @@ void testWorkflowOnlyHostRestoreRefreshesOpenEditor() {
     source.workflow.selectSlot(SpectralWorkflow::Slot::b);
     source.workflow.setSidebarExpanded(false);
     const auto preset = juce::File::getSpecialLocation(juce::File::tempDirectory)
-                            .getNonexistentChildFile("lpng-host-metadata", ".lpngspectral", false);
+                            .getNonexistentChildFile("fixxy-host-metadata", ".fixxyspectral", false);
     check(source.workflow.savePreset(preset).wasOk(), "workflow-only host preset saves");
     juce::MemoryBlock collapsedState;
     source.getStateInformation(collapsedState);
@@ -894,21 +944,21 @@ void testWorkflowOnlyHostRestoreRefreshesOpenEditor() {
     check(preset.deleteFile(), "workflow-only host preset removed");
 }
 
-void testMalformedPresetIsRejectedAtomically() {
+void testMalformedPresetIsRejectedAtomically(const char* presetFormat) {
     SpectralProcessor processor;
     setParam(processor, "depth", 7.0f);
     const auto preset = juce::File::getSpecialLocation(juce::File::tempDirectory)
-                            .getNonexistentChildFile("lpng-spectral-invalid", ".lpngspectral", false);
+                            .getNonexistentChildFile("fixxy-spectral-invalid", ".fixxyspectral", false);
 
     juce::ValueTree incomplete("PARAMETERS");
-    incomplete.setProperty("presetFormat", "LpngSpectral", nullptr);
+    incomplete.setProperty("presetFormat", presetFormat, nullptr);
     incomplete.setProperty("presetVersion", 1, nullptr);
     check(preset.replaceWithText(incomplete.createXml()->toString()), "invalid preset fixture writes");
     check(processor.workflow.loadPreset(preset).failed(), "incomplete preset is rejected");
     checkNear(getParam(processor, "depth"), 7.0f, "rejected preset leaves parameters unchanged");
 
     auto nonfinite = processor.apvts.copyState();
-    nonfinite.setProperty("presetFormat", "LpngSpectral", nullptr);
+    nonfinite.setProperty("presetFormat", presetFormat, nullptr);
     nonfinite.setProperty("presetVersion", 1, nullptr);
     for (auto child : nonfinite)
         if (child["id"].toString() == "depth") child.setProperty("value", INFINITY, nullptr);
@@ -917,7 +967,7 @@ void testMalformedPresetIsRejectedAtomically() {
     checkNear(getParam(processor, "depth"), 7.0f, "nonfinite rejection is atomic");
 
     auto outOfRange = processor.apvts.copyState();
-    outOfRange.setProperty("presetFormat", "LpngSpectral", nullptr);
+    outOfRange.setProperty("presetFormat", presetFormat, nullptr);
     outOfRange.setProperty("presetVersion", 1, nullptr);
     for (auto child : outOfRange)
         if (child["id"].toString() == "depth") child.setProperty("value", 100.0, nullptr);
@@ -926,14 +976,14 @@ void testMalformedPresetIsRejectedAtomically() {
     checkNear(getParam(processor, "depth"), 7.0f, "range rejection is atomic");
 
     auto wrongVersion = processor.apvts.copyState();
-    wrongVersion.setProperty("presetFormat", "LpngSpectral", nullptr);
+    wrongVersion.setProperty("presetFormat", presetFormat, nullptr);
     wrongVersion.setProperty("presetVersion", 99, nullptr);
     check(preset.replaceWithText(wrongVersion.createXml()->toString()), "version preset fixture writes");
     check(processor.workflow.loadPreset(preset).failed(), "unsupported preset version is rejected");
     checkNear(getParam(processor, "depth"), 7.0f, "version rejection is atomic");
 
     auto fractionalBool = processor.apvts.copyState();
-    fractionalBool.setProperty("presetFormat", "LpngSpectral", nullptr);
+    fractionalBool.setProperty("presetFormat", presetFormat, nullptr);
     fractionalBool.setProperty("presetVersion", 1, nullptr);
     for (auto child : fractionalBool)
         if (child["id"].toString() == "wband0On") child.setProperty("value", 0.5, nullptr);
@@ -942,13 +992,21 @@ void testMalformedPresetIsRejectedAtomically() {
     checkNear(getParam(processor, "depth"), 7.0f, "fractional bool rejection is atomic");
 
     auto fractionalChoice = processor.apvts.copyState();
-    fractionalChoice.setProperty("presetFormat", "LpngSpectral", nullptr);
+    fractionalChoice.setProperty("presetFormat", presetFormat, nullptr);
     fractionalChoice.setProperty("presetVersion", 1, nullptr);
     for (auto child : fractionalChoice)
         if (child["id"].toString() == "wband0Type") child.setProperty("value", 1.5, nullptr);
     check(preset.replaceWithText(fractionalChoice.createXml()->toString()), "fractional choice fixture writes");
     check(processor.workflow.loadPreset(preset).failed(), "fractional choice preset value is rejected");
     checkNear(getParam(processor, "depth"), 7.0f, "fractional choice rejection is atomic");
+    for (const auto* wrongFormat : {"OtherProduct", "fixxyspectral", "lpngspectral"}) {
+        auto wrongProduct = processor.apvts.copyState();
+        wrongProduct.setProperty("presetFormat", wrongFormat, nullptr);
+        wrongProduct.setProperty("presetVersion", 3, nullptr);
+        check(preset.replaceWithText(wrongProduct.createXml()->toString()), "wrong product fixture writes");
+        check(processor.workflow.loadPreset(preset).failed(), "wrong or case-mismatched preset brand is rejected");
+        checkNear(getParam(processor, "depth"), 7.0f, "wrong product rejection is atomic");
+    }
     check(preset.deleteFile(), "invalid temporary preset removed");
 }
 
@@ -1002,12 +1060,16 @@ void testAutomationEnableCreatesRetainedPresence() {
 void testWorkflowSurvivesStateRoundTripAndEditorReopen() {
     SpectralProcessor source;
     const auto preset = juce::File::getSpecialLocation(juce::File::tempDirectory)
-                            .getNonexistentChildFile("lpng-spectral-session", ".lpngspectral", false);
+                            .getNonexistentChildFile("fixxy-spectral-session", ".fixxyspectral", false);
+    source.workflow.createBand(0, 1800.0f, 4.0f);
+    setParam(source, "wband0On", 0.0f);
     setParam(source, "depth", 2.0f);
     check(source.workflow.savePreset(preset).wasOk(), "session preset saves");
     setParam(source, "depth", 3.0f);
     check(source.workflow.isCurrentPresetDirty(), "parameter edit marks preset modified");
     source.workflow.selectSlot(SpectralWorkflow::Slot::b);
+    source.workflow.createBand(1, 3200.0f, 2.0f);
+    setParam(source, "wband1On", 0.0f);
     setParam(source, "depth", 8.0f);
     source.workflow.setSidebarExpanded(false);
 
@@ -1026,6 +1088,9 @@ void testWorkflowSurvivesStateRoundTripAndEditorReopen() {
 
     juce::MemoryBlock state;
     source.getStateInformation(state);
+    const auto stateXml = juce::AudioProcessor::getXmlFromBinary(state.getData(), static_cast<int>(state.getSize()));
+    check(stateXml != nullptr && stateXml->hasTagName("FIXXY_SPECTRAL_STATE"),
+          "serialized host sessions use the Fixxy processor root");
     SpectralProcessor restored;
     restored.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
     check(restored.workflow.activeSlot() == SpectralWorkflow::Slot::b,
@@ -1037,6 +1102,39 @@ void testWorkflowSurvivesStateRoundTripAndEditorReopen() {
     check(restored.workflow.currentPresetName() == preset.getFileNameWithoutExtension(),
           "host state retains preset identity");
     check(restored.workflow.isCurrentPresetDirty(), "host state retains modified preset status");
+    juce::ValueTree legacy("LPNGSPECTRAL_STATE");
+    legacy.copyPropertiesAndChildrenFrom(source.workflow.createProcessorState(), nullptr);
+    const auto legacyXml = legacy.createXml()->toString();
+    restoreHostTree(restored, legacy);
+    check(restored.workflow.activeSlot() == SpectralWorkflow::Slot::b
+              && !restored.workflow.isSidebarExpanded(),
+          "legacy-branded version 3 host state restores active B and sidebar metadata");
+    checkNear(getParam(restored, "depth"), 8.0f, "legacy-branded version 3 restores active B values");
+    check(restored.workflow.currentPresetName() == "Factory baseline"
+              && restored.workflow.isCurrentPresetDirty() && restored.workflow.isBandPresent(1)
+              && !restored.workflow.isBandPresent(0),
+          "legacy-branded version 3 retains B identity dirty baseline and bypassed presence");
+    restored.workflow.selectSlot(SpectralWorkflow::Slot::a);
+    checkNear(getParam(restored, "depth"), 3.0f, "legacy-branded version 3 restores inactive A values");
+    check(restored.workflow.currentPresetName() == preset.getFileNameWithoutExtension()
+              && restored.workflow.isCurrentPresetDirty() && restored.workflow.isBandPresent(0)
+              && !restored.workflow.isBandPresent(1),
+          "legacy-branded version 3 retains A identity dirty baseline and bypassed presence");
+    setParam(restored, "depth", 2.0f);
+    check(!restored.workflow.isCurrentPresetDirty(), "legacy-branded version 3 retains A clean values and presence");
+    restored.workflow.selectSlot(SpectralWorkflow::Slot::b);
+    restored.workflow.deleteBand(1);
+    setParam(restored, "depth", 5.0f);
+    check(!restored.workflow.isCurrentPresetDirty(), "legacy-branded version 3 retains B clean values and presence");
+    check(legacy.createXml()->toString() == legacyXml, "legacy-branded version 3 restore preserves caller input");
+    for (const auto* wrongType : {"OTHER_STATE", "fixxy_spectral_state", "lpngspectral_state"}) {
+        juce::ValueTree wrongRoot(wrongType);
+        wrongRoot.copyPropertiesAndChildrenFrom(legacy, nullptr);
+        const auto before = restored.workflow.createProcessorState().createXml()->toString();
+        check(!restored.workflow.restoreProcessorState(wrongRoot), "wrong or case-mismatched host root is rejected");
+        check(restored.workflow.createProcessorState().createXml()->toString() == before,
+              "wrong host root rejection preserves full live state");
+    }
     check(preset.deleteFile(), "session temporary preset removed");
 }
 
@@ -1195,7 +1293,8 @@ int main(int argc, char** argv) {
     testSelectedBandRestoreDefersAttachmentReplacement();
     testSidechainToolbarGesturesRecallAndMinimumLayout();
     testWorkflowOnlyHostRestoreRefreshesOpenEditor();
-    testMalformedPresetIsRejectedAtomically();
+    testMalformedPresetIsRejectedAtomically("FixxySpectral");
+    testMalformedPresetIsRejectedAtomically("LpngSpectral");
     testBandPresenceDistinguishesBypassDeleteAndReuse();
     testAutomationEnableCreatesRetainedPresence();
     testWorkflowSurvivesStateRoundTripAndEditorReopen();

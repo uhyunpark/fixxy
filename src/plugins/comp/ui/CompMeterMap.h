@@ -1,9 +1,9 @@
 #pragma once
 
 /**
-    Meter scale mappers for the LpngComp editor — deliberately TWO separate
+    Meter scale mappers for the fixxy Comp editor — deliberately TWO separate
     mappers because the two meter families measure different physical
-    quantities on different scales (the analyzer lesson, src/plugins/CLAUDE.md,
+    quantities on different scales (the analyzer lesson, src/plugins/AGENTS.md,
     applied to meters):
 
       * IN/OUT level meters read dBFS peaks: NEGATIVE numbers, -60..0, and the

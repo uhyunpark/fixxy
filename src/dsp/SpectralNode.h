@@ -326,7 +326,7 @@ public:
         This is the last-processed hop's smoothed+ballistics reduction — the same
         quantity that becomes gain = 10^(-red/20) — exposed for the editor's
         reduction ribbon. Plain copy, NO atomics (src/dsp stays atomic-free; the
-        plugin layer owns the cross-thread publish, see src/plugins/CLAUDE.md).
+        plugin layer owns the cross-thread publish, see src/plugins/AGENTS.md).
         When inactive (depth == 0) every bin is 0. n is clamped to kNumBins. */
     void copyReductionDb(float* dst, int n) const {
         const int m = n < kNumBins ? n : kNumBins;

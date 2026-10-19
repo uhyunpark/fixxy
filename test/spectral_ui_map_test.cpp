@@ -1,5 +1,5 @@
-// Offline verification of the LpngSpectral editor's UI/publish seams — the
-// analyzer/meter lesson (PROJECT.md 이음새 버그) applied to the spectral display:
+// Offline verification of the Fixxy Spectral editor's UI/publish seams — the
+// analyzer/meter lesson (docs/architecture.md 이음새 버그) applied to the spectral display:
 //
 //   1. DisplayMap (spectralui) — the THREE separate scales on one plot: frequency
 //      log x round-trips (100..16k); spectrum level dB -> y in its own -90..0

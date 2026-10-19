@@ -5,7 +5,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "CompMeterMap.h"
-#include "plugins/LpngLookAndFeel.h"
+#include "plugins/FixxyLookAndFeel.h"
 
 /**
     Vertical gain-reduction meter — the family's focal point, so it is the one
@@ -44,7 +44,7 @@ public:
     }
 
     void paint(juce::Graphics& g) override {
-        using namespace lpng;
+        using namespace fixxy;
         auto r = getLocalBounds().toFloat();
 
         auto labelArea = r.removeFromTop(kLabelH);

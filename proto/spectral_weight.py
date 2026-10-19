@@ -726,7 +726,7 @@ def test7_gate(params):
     a single-sided -60 dB floor supplies. This is a genuine mismatch between
     the frozen spec's <1e-9 numeric bound and the (also frozen, unrelated)
     Stage-2 gain-computer calibration, not a bug in either formula -- I did
-    not touch either formula to make this fit (proto/CLAUDE.md: fix the
+    not touch either formula to make this fit (proto/AGENTS.md: fix the
     formula, never loosen the tolerance; there is no formula error here to
     fix). Evidence-based gate used instead, following the same pattern
     spectral_ballistics.py's gate3/gate4 use for a similar spec-vs-

@@ -1,4 +1,10 @@
-# Meta-Plugin Project
+# fixxy architecture and design history
+
+프로젝트 소개와 빌드/테스트 방법은 [README](../README.md), 에이전트 작업 규칙은
+[AGENTS.md](../AGENTS.md)를 본다. 현재 구현 범위와 검증 상태는
+[최신 진행 기록](soothe3-parity-progress.md)이 기준이다.
+이 문서는 설계 근거와 초기 로드맵을 보존한다. 아래 초기 UI 방침과 체크리스트는
+현재 제품 상태를 뜻하지 않는다. 경로를 코드로 표기한 경우 저장소 루트 기준이다.
 
 > 이 문서에는 **구현 중 검색으로 찾을 수 없는 것**만 담는다.
 > API 시그니처, biquad 계수 공식, 순환 버퍼 구현 등은 필요할 때 찾아본다.
@@ -13,8 +19,8 @@
 
 ## 제약: 오디오 스레드 (설계를 결정한다)
 
-`processBlock()`은 44.1kHz/128샘플 기준 2.9ms마다 호출. 이 안에서 금지:
-동적 할당, mutex lock, 파일 I/O, 네트워크, 로깅, 예외, 시스템 콜.
+`processBlock()`은 44.1kHz/128샘플 기준 2.9ms마다 호출한다.
+작업 규칙과 금지 연산은 [AGENTS.md](../AGENTS.md)의 Non-Negotiables를 따른다.
 
 → **LLM은 오디오 스레드에 진입 불가.** 스레드 분리가 강제된다.
 
@@ -32,7 +38,10 @@ LLM은 실시간으로 소리를 만들지 않는다. 실시간 DSP 엔진을 **
 
 - **현재 제품명**: 제조사 `fixxy`, 제품 `fixxy EQ`, `fixxy Comp`, `fixxy Spectral`.
   기존 세션/프리셋 호환을 위해 bundle ID(`com.uhyun.*`), 제조사/플러그인 코드,
-  APVTS/state 식별자, `LpngSpectral` presetFormat과 `.lpngspectral` 확장자는 유지한다.
+  APVTS 파라미터 ID/범위/순서와 `PARAMETERS` 트리는 유지한다.
+  새 프리셋은 `.fixxyspectral` / `FixxySpectral` presetFormat으로 쓰고,
+  새 호스트 상태는 `FIXXY_SPECTRAL_STATE`로 쓴다. 이전 `.lpngspectral` /
+  `LpngSpectral` presetFormat / `LPNGSPECTRAL_STATE`는 읽기 호환용으로만 유지한다.
 - **스택**: JUCE + CMake/Ninja/Clang. Python(numpy/scipy/sounddevice)으로 DSP 선(先)프로토타이핑.
 - **메타 플러그인 접근**: 노드 그래프(A)로 MVP → Faust JIT(B) 하이브리드로 확장.
   - A: LLM이 코드가 아닌 **그래프 JSON** 생성. 스키마 검증 가능, 크래시 리스크 낮음. 표현력은 노드 라이브러리에 종속.
@@ -59,8 +68,8 @@ ZL Audio와 동일한 전략: 메타 플러그인으로 바로 가지 않는다.
 - 각 제품은 **개별적으로** pluginval / DAW 로드 검증을 통과해야 한다.
   통합은 그 다음 — 노드가 메타 플러그인 그래프에서 실제로 조합 가능한지는
   그때 확인한다.
-- UI는 지금 전부 **제네릭/자동 생성** (`GenericAudioProcessorEditor` 등).
-  제품별 UI 폴리싱은 하지 않는다 — 지금 목표는 DSP 노드 검증이지 제품 완성도가 아니다.
+- 초기에는 **제네릭/자동 생성 UI** (`GenericAudioProcessorEditor` 등)로 DSP 노드부터
+  검증했다. 현재 EQ/Comp/Spectral에는 제품별 커스텀 에디터가 있다.
 - CMake: 타겟마다 반복되는 설정(`juce_add_plugin` 옵션, 링크, 워닝 플래그)은
   헬퍼 함수로 묶는다. 타겟 추가 = 소스 목록 + 제품명 + PLUGIN_CODE만 새로 씀.
 
@@ -82,10 +91,13 @@ ZL Audio와 동일한 전략: 메타 플러그인으로 바로 가지 않는다.
 
 ---
 
-## 구현 순서
+## 초기 구현 순서 (역사 기록)
+
+아래의 "다음 제품"과 잔여 작업은 당시 계획이다. Compressor와 Spectral 제품,
+matched 커널 및 커스텀 UI는 이후 구현됐다. 현재 상태는 최신 진행 기록을 따른다.
 
 1. Gain — 플러그인 골격, 파라미터 스무딩 (완료)
-2. Parametric EQ — **LpngEQ 기능 완성** (16밴드 × 8타입, 슬로프 6~96dB/oct,
+2. Parametric EQ — **fixxy EQ 기능 완성** (16밴드 × 8타입, 슬로프 6~96dB/oct,
    커브 디스플레이 + pre/post 애널라이저 + Pro-Q식 핸들 인터랙션, pluginval 통과)
    - 잔여: matched filter 커널 교체 (아래 함정 참고), 자연어 레이어 (결정 사항 참고)
 3. Compressor — 엔벨로프 팔로워, 니, 사이드체인, GR 미터 (다음 제품, docs/compressor-reference.md)
@@ -222,34 +234,39 @@ zsliu98의 오픈소스 JUCE 플러그인. 구현 순서와 거의 1:1로 대응
 남의 템플릿을 fork하지 않는다. 최소 구성으로 시작하고, 필요할 때만 늘린다.
 
 ```
-lpngsound/
-├── CMakeLists.txt      # JUCE 서브모듈 + 플러그인 타겟들 (lpng_add_plugin 헬퍼)
+sound/
+├── CMakeLists.txt      # JUCE 서브모듈 + 플러그인 타겟들 (fixxy_add_plugin 헬퍼)
 ├── external/JUCE/      # submodule
 ├── src/
 │   ├── dsp/             # 공유 노드 라이브러리 (SvfPeakNode 등, header-only)
 │   └── plugins/
 │       └── eq/          # EQ 제품 (PluginProcessor.h/.cpp)
 ├── proto/              # Python 프로토타입
-└── CLAUDE.md, PROJECT.md
+├── README.md           # 소개, 빌드와 테스트
+├── AGENTS.md           # 에이전트 작업 규칙
+└── docs/architecture.md # 설계 근거와 초기 로드맵
 ```
 
-CI, 인스톨러, 코드 서명, 유니버설 바이너리는 전부 나중. 지금은 로컬 빌드 → DAW 로드만 되면 된다.
+초기 빌드 범위는 로컬 빌드 → DAW 로드였다. CI, 인스톨러, 배포용 코드 서명,
+유니버설 바이너리는 당시 후순위였고, 이후 로컬 검증에서는 ad-hoc 서명을 사용했다.
 pamplejuce의 CMakeLists를 **읽고 이해**하는 건 좋지만, fork하지 말고 필요한 부분만 직접 쓴다.
 
 ---
 
-## 다음 액션
+## 이전 단계 완료 기록과 후속 후보 (역사 기록)
+
+완료 커밋과 당시 후속 후보를 보존한 목록이다. 현재 작업 큐는 최신 진행 기록을 따른다.
 
 1. ~~JUCE 서브모듈 + 최소 CMakeLists 직접 작성 → 빌드 통과~~ (완료)
 2. ~~Gain 플러그인 → DAW 로드 → pluginval 통과~~ (완료)
 3. ~~Python DSP 프로토타이핑 환경 세팅 (`proto/`)~~ (완료)
 4. ~~EQ 밴드 1개(peaking) 구현, 멀티 타겟 빌드로 분리~~ (완료, Week 2)
-5. ~~멀티밴드 EQ로 확장 → 독립 제품(LpngEQ)으로 pluginval 통과~~ (완료: DSP + UI 3단계)
-6. ~~Compressor 제품(LpngComp) — Giannoulis feed-forward~~ (완료, 커밋 6db1f86)
+5. ~~멀티밴드 EQ로 확장 → 독립 제품(fixxy EQ)으로 pluginval 통과~~ (완료: DSP + UI 3단계)
+6. ~~Compressor 제품(fixxy Comp) — Giannoulis feed-forward~~ (완료, 커밋 6db1f86)
 7. ~~Matched filter C++ 커널 교체~~ (완료: Ivantsov + DF1, 커밋 9dbac22)
 8. ~~파라미터 스키마 레이어~~ (완료, 커밋 83b342b)
 9. ~~다이내믹 EQ + DF1 통일 + UI 어포던스 퀵윈~~ (완료, 커밋 ccdea03)
-10. ~~Spectral Processor (LpngSpectral)~~ (완료, 커밋 a3b5835.
+10. ~~Spectral Processor (fixxy Spectral)~~ (완료, 커밋 a3b5835.
     docs/soothe3-measurement-procedure.md, docs/spectral-reference.md)
 11. Saturator + Oversampling — 이월분, 다음 후보
 12. EQ/컴프 라이트 스킨 이관 — docs/issues.md DESIGN-DIRECTION

@@ -36,7 +36,7 @@ is much higher. That is a known Stage-4+ optimization topic (smaller N, or a
 low-latency spectral mode), NOT a Stage-2 blocker -- Stage 2 is about getting
 the transfer/selectivity math right, and those are framing-size-robust.
 
-VERIFICATION PHILOSOPHY (proto/CLAUDE.md): every claim is a numbered test with
+VERIFICATION PHILOSOPHY (proto/AGENTS.md): every claim is a numbered test with
 the actual numbers and a defended tolerance; the grading references are real
 soothe3 bounces (TARGETS), measured with the SAME estimators the Stage-0
 analyzer used (tone_amp / welch_atten, imported from soothe3_measure_analyze so
@@ -71,7 +71,7 @@ EPS = 1e-12
 # ============================================================================
 # THE MEASURED TARGET TABLE -- real soothe3 bounces (Stage 0). These are the
 # grading references; a failed assert against them means the formula is wrong,
-# not the tolerance (proto/CLAUDE.md).
+# not the tolerance (proto/AGENTS.md).
 # ============================================================================
 TARGETS = {
     # soft, Detail 5.0: tone exceed over noise floor (dB) -> attenuation (dB).

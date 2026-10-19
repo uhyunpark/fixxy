@@ -3,16 +3,16 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 // =============================================================================
-//  LpngLookAndFeel — shared visual identity for the Lpng plugin family
+//  FixxyLookAndFeel — shared visual identity for the fixxy plugin family
 // =============================================================================
 //
-//  DESIGN SPEC (this block is the contract every Lpng editor follows)
+//  DESIGN SPEC (this block is the contract every fixxy editor follows)
 //  -----------------------------------------------------------------------------
 //  Direction: dark, flat, single warm accent. Modern developer-tool / analyzer
 //  aesthetic (ZL Audio / FabFilter class), NOT skeuomorphic. No gradients, no
 //  bevels, no drop shadows, no image assets. Chrome is monochrome so the DATA is
 //  the only thing that carries colour, and the ACCENT is scarce enough to mean
-//  something. LpngEQ and LpngComp must read as one product.
+//  something. fixxy EQ and fixxy Comp must read as one product.
 //
 //  THE ONE RULE — colour encodes meaning, not decoration:
 //    * Signal / data      -> COOL blues & greys  (analyzer, response curve,
@@ -75,10 +75,10 @@
 //      restyles in one place.
 //    * Don't re-derive band hues; call palette::bandColour().
 //
-//  LIGHT VARIANT — "Family Light" (namespace palettelight + LpngLookAndFeelLight)
+//  LIGHT VARIANT — "Family Light" (namespace palettelight + FixxyLookAndFeelLight)
 //  -----------------------------------------------------------------------------
 //  Owner decision (2026-08-10, docs/issues.md DESIGN-DIRECTION): dark mode is
-//  retired; the whole family moves to a warm-light "paper" language. LpngSpectral
+//  retired; the whole family moves to a warm-light "paper" language. fixxy Spectral
 //  DEBUTS it; EQ/Comp migrate later (token swap — NOT in that task). The dark
 //  palette above stays intact so those two editors are undisturbed until then.
 //  The light language keeps THE ONE RULE verbatim — only the medium changes:
@@ -95,11 +95,11 @@
 //    * value readouts use a tabular SANS, not the dark mono (tabular figures are
 //      the light stand-in for the mono signature).
 //  When you migrate EQ/Comp: swap the namespace the editor pulls from
-//  (palette:: -> palettelight::) and setLookAndFeel(&LpngLookAndFeelLight), don't
+//  (palette:: -> palettelight::) and setLookAndFeel(&FixxyLookAndFeelLight), don't
 //  hardcode. Re-verify the analyzer/meter data colours against the cream canvas.
 // =============================================================================
 
-namespace lpng {
+namespace fixxy {
 
 // -----------------------------------------------------------------------------
 //  Palette — every colour a named constexpr ARGB with a one-line role.
@@ -215,7 +215,7 @@ namespace palettelight {
 
     inline juce::Colour col(juce::uint32 argb) noexcept { return juce::Colour(argb); }
 
-    /** Per-band identity hue for the LIGHT family — 8 hues (LpngSpectral's
+    /** Per-band identity hue for the LIGHT family — 8 hues (fixxy Spectral's
         weight-curve bands, kMaxWeightBands) tuned for legibility on the cream/
         white surfaces: lower value than the dark palette::bandColour()'s
         HSV(i/n, 0.65, 0.95) so a hue like yellow doesn't wash out against
@@ -263,11 +263,11 @@ inline juce::Font headerFont(float size = metrics::kFontHeader) {
 }
 
 // -----------------------------------------------------------------------------
-//  LpngLookAndFeel — put one on the editor and every child renders on-family.
+//  FixxyLookAndFeel — put one on the editor and every child renders on-family.
 // -----------------------------------------------------------------------------
-class LpngLookAndFeel : public juce::LookAndFeel_V4 {
+class FixxyLookAndFeel : public juce::LookAndFeel_V4 {
 public:
-    LpngLookAndFeel() {
+    FixxyLookAndFeel() {
         using namespace palette;
 
         // Any component under this L&F picks up family colours by default.
@@ -416,17 +416,17 @@ public:
 };
 
 // -----------------------------------------------------------------------------
-//  LpngLookAndFeelLight — the "Family Light" skin. Debuts on LpngSpectral; the
-//  two shipping dark editors (EQ/Comp) keep using LpngLookAndFeel and are
+//  FixxyLookAndFeelLight — the "Family Light" skin. Debuts on fixxy Spectral; the
+//  two shipping dark editors (EQ/Comp) keep using FixxyLookAndFeel and are
 //  untouched. Subclasses the base only to reuse its colour-id plumbing surface;
 //  the two data-carrying draws (rotary, toggle) are fully overridden for the
 //  flat paper look: no gradients, no shadows, hairline outlines, white knob
 //  face, value arc in the slider's fill colour (editor sets azure=signal /
 //  ember=action per the family rule), pill toggles instead of dark checkboxes.
 // -----------------------------------------------------------------------------
-class LpngLookAndFeelLight : public LpngLookAndFeel {
+class FixxyLookAndFeelLight : public FixxyLookAndFeel {
 public:
-    LpngLookAndFeelLight() {
+    FixxyLookAndFeelLight() {
         namespace pl = palettelight;
         using pl::col;
 
@@ -610,4 +610,4 @@ public:
     }
 };
 
-}  // namespace lpng
+}  // namespace fixxy

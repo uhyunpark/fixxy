@@ -540,7 +540,7 @@ void captureEditor(const juce::File& directory) {
     processor->workflow.copyActiveToOther();
     processor->workflow.selectSlot(SpectralWorkflow::Slot::b);
     check("host-readback snapshot preset saves",
-          processor->workflow.savePreset(directory.getChildFile("host-readback.lpngspectral")).wasOk() ? 0.0 : 1.0,
+          processor->workflow.savePreset(directory.getChildFile("host-readback.fixxyspectral")).wasOk() ? 0.0 : 1.0,
           0.0);
     juce::MemoryBlock collapsedState;
     processor->getStateInformation(collapsedState);

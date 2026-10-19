@@ -1,4 +1,4 @@
-# LpngSpectral progress — September 8, 2026
+# fixxy Spectral progress — September 8, 2026
 
 This pass completes the current spectral processor's correctness and native JUCE
 editing work. It preserves the calibrated transfer constants and the existing

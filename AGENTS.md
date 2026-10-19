@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENTS.md
 
 Act as a DSP practitioner and real-time systems engineer.
 
@@ -7,7 +7,8 @@ Act as a DSP practitioner and real-time systems engineer.
 Build a **meta-plugin**: a DAW plugin that constructs and reconfigures its own DSP graph
 from natural-language requests. Getting there requires building the parts first — each
 classic effect (EQ, compressor, saturator, delay, spectral processor) is both a learning
-exercise and a node in the eventual graph library. Current stage and full status: `PROJECT.md`.
+exercise and a node in the eventual graph library. Project overview and build/test
+commands: `README.md`. Current stage and full status: `docs/soothe3-parity-progress.md`.
 
 ## Who I Am
 
@@ -29,7 +30,7 @@ git, or general software patterns — I already know them.
 - **Prototype in Python first.** New DSP goes research -> numpy proto with
   assert-based verification against an independent reference (scipy) -> then C++.
   A derivation without a numeric cross-check does not enter C++ (a research-stage
-  formula error has already been caught this way — see PROJECT.md 함정).
+  formula error has already been caught this way — see docs/architecture.md 함정).
 - **Audit the audio thread.** Any code touching processBlock() gets an explicit
   allocation/locks/IO/logging/bounded-work audit in the agent's report *before* merge.
 - **Gates before commit**: clean build with our warning flags, console tests pass,
@@ -52,12 +53,15 @@ git, or general software patterns — I already know them.
 
 ## Stack
 
-JUCE + CMake + Ninja + Clang, Python proto — see PROJECT.md 결정 사항.
+JUCE + CMake + Ninja + Clang, Python proto — see README.md and
+docs/architecture.md 결정 사항.
 
 ## See Also
 
-- `PROJECT.md` — architecture, decisions, 함정 (traps), current status.
-- Folder `CLAUDE.md`s (`src/dsp/`, `src/plugins/`, `proto/`, `test/`) — conventions,
+- `README.md` — project overview, local build and test commands.
+- `docs/architecture.md` — architecture, decisions, 함정 (traps), historical roadmap.
+- `docs/soothe3-parity-progress.md` — current status and verification checkpoints.
+- Folder `AGENTS.md`s (`src/dsp/`, `src/plugins/`, `proto/`, `test/`) — conventions,
   loaded on demand by whoever is working in that directory.
 - `docs/` — domain reference guides (EQ, compressor).
-- `.claude/skills/dsp-pipeline/SKILL.md` — the research -> proto -> C++ process.
+- `.claude/skills/dsp-pipeline/SKILL.md` — the research -> proto -> C++ port process.
