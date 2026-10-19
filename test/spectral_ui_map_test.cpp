@@ -22,9 +22,11 @@
 // Plain C++ console target, no JUCE — every mapped/published header is JUCE-free.
 
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <random>
+#include <thread>
 #include <vector>
 
 #include "dsp/SpectralNode.h"
@@ -56,8 +58,14 @@ void verifyDisplayMap() {
     m.setBounds(11.0f, 7.0f, 803.0f, 421.0f);  // deliberately awkward bounds
 
     // Frequency log x: endpoints land on the edges, midpoints round-trip.
-    checkNear("map", "100 Hz -> left edge", m.freqToX(DisplayMap::kMinFreq), 11.0, 1e-3);
-    checkNear("map", "16 kHz -> right edge", m.freqToX(DisplayMap::kMaxFreq), 11.0 + 803.0, 1e-3);
+    checkNear("map", "20 Hz -> left edge", m.freqToX(20.0f), 11.0, 1e-3);
+    checkNear("map", "20 kHz -> right edge", m.freqToX(20000.0f), 11.0 + 803.0, 1e-3);
+    checkNear("map", "left-edge gesture preserves 20 Hz range pin", m.xToFreq(11.0f), 20.0, 1e-3);
+    checkNear("map", "right-edge gesture preserves 20 kHz range pin", m.xToFreq(814.0f), 20000.0, 0.02);
+    check("map", "sub-bass band remains inside plot", m.freqToX(40.0f) > 11.0f,
+          "40 Hz must not clamp to the low range pin");
+    check("map", "upper-treble band remains inside plot", m.freqToX(18000.0f) < 814.0f,
+          "18 kHz must not clamp to the high range pin");
     double maxErr = 0.0;
     for (int i = 0; i <= 100; ++i) {
         const float logMin = std::log10(DisplayMap::kMinFreq);
@@ -67,7 +75,7 @@ void verifyDisplayMap() {
         maxErr = std::fmax(maxErr, std::fabs(static_cast<double>(rt - f) / f));
     }
     char d[128];
-    std::snprintf(d, sizeof d, "max relative |freq->x->freq err| = %.3e over 100..16k", maxErr);
+    std::snprintf(d, sizeof d, "max relative |freq->x->freq err| = %.3e over 20..20k", maxErr);
     check("map", "frequency log x round-trips", maxErr < 1e-4, d);
 
     // Spectrum level dB -> y in the analyzer's OWN window (not any gain axis).
@@ -103,6 +111,65 @@ void verifyDisplayMap() {
     check("baseline", "baseline sits above -40 dBFS on the spectrum axis",
           base < m.specDbToY(-40.0f),
           "reduction band stays clear of typical spectrum territory");
+
+    // Delta mode is drawn on the reduction scale (ribbonExtentPx) mirrored
+    // upward from the baseline — no dedicated delta y-map to test here; the
+    // ribbon-extent checks above already pin that scale.
+}
+
+// ============================================================
+// 1a: weight-curve dB <-> y (WeightBandLayer.h's coordinate math)
+// ============================================================
+void verifyWeightMap() {
+    using spectralui::DisplayMap;
+    DisplayMap m;
+    m.setBounds(11.0f, 7.0f, 803.0f, 421.0f);  // same awkward bounds as verifyDisplayMap
+    const float base = m.baselineY();
+    const float span = DisplayMap::kWeightSpanFrac * 421.0f;
+    const float maxDb = static_cast<float>(spectralweight::kWeightDisplayDb);
+
+    // Endpoints: 0 dB on the baseline, +-24 dB at the span edges.
+    checkNear("weight", "0 dB -> baseline", m.weightDbToY(0.0f), base, 1e-3);
+    checkNear("weight", "+24 dB -> baseline - span", m.weightDbToY(maxDb), base - span, 1e-3);
+    checkNear("weight", "-24 dB -> baseline + span", m.weightDbToY(-maxDb), base + span, 1e-3);
+
+    // Midpoint: +12 dB is halfway up the span.
+    checkNear("weight", "+12 dB -> halfway up the span", m.weightDbToY(maxDb * 0.5f),
+              base - span * 0.5f, 1e-3);
+    checkNear("weight", "-12 dB -> halfway down the span", m.weightDbToY(-maxDb * 0.5f),
+              base + span * 0.5f, 1e-3);
+
+    // Monotonicity: higher dB is strictly closer to the top (smaller y).
+    check("weight", "monotonic: higher dB -> smaller y",
+          m.weightDbToY(10.0f) < m.weightDbToY(-10.0f) && m.weightDbToY(-5.0f) < m.weightDbToY(-15.0f),
+          "weight curve rises upward as dB increases, like the ribbon's mirror");
+
+    // Clamping both directions: beyond +-24 dB pins to the span edge.
+    checkNear("weight", "+90 dB clamps to +24 dB edge", m.weightDbToY(90.0f), base - span, 1e-3);
+    checkNear("weight", "-90 dB clamps to -24 dB edge", m.weightDbToY(-90.0f), base + span, 1e-3);
+
+    // yToWeightDb is the exact inverse (within the display window).
+    checkNear("weight", "yToWeightDb(baseline) -> 0 dB", m.yToWeightDb(base), 0.0, 1e-3);
+    checkNear("weight", "yToWeightDb(baseline - span) -> +24 dB", m.yToWeightDb(base - span), maxDb, 1e-3);
+    checkNear("weight", "yToWeightDb(baseline + span) -> -24 dB", m.yToWeightDb(base + span), -maxDb, 1e-3);
+    // yToWeightDb also clamps: a y far above/below the span still reads back a
+    // value inside +-24 dB (never overflows the window).
+    checkNear("weight", "yToWeightDb far above the well clamps to +24 dB",
+              m.yToWeightDb(m.y - 500.0f), maxDb, 1e-3);
+    checkNear("weight", "yToWeightDb far below the well clamps to -24 dB",
+              m.yToWeightDb(m.y + m.h + 500.0f), -maxDb, 1e-3);
+
+    // Roundtrip db -> y -> db across the window, including past the clamp edges.
+    double maxErr = 0.0;
+    for (int i = -120; i <= 120; ++i) {
+        const float db = static_cast<float>(i) * 0.2f;  // -24 .. 24 in 0.2 dB steps
+        const float rt = m.yToWeightDb(m.weightDbToY(db));
+        const float want = db < -maxDb ? -maxDb : (db > maxDb ? maxDb : db);
+        maxErr = std::fmax(maxErr, std::fabs(static_cast<double>(rt - want)));
+    }
+    char d[128];
+    std::snprintf(d, sizeof d, "max |db->y->db err| = %.3e over -24..24 dB", maxErr);
+    check("weight", "db->y->db roundtrips", maxErr < 1e-4, d);
 }
 
 // ============================================================
@@ -148,19 +215,36 @@ void verifyBlend() {
     using spectralmix::blend;
     using spectralmix::Mode;
     const double dry = 0.3, wet = 0.2, g = 2.0;
+    const double w1 = 1.0;   // wetTrim == 0 dB (default: pre-sidebar behaviour)
 
-    checkNear("mix", "normal mix=1 -> wet*gain", blend(dry, wet, 1.0, g, Mode::Normal), wet * g, 1e-12);
-    checkNear("mix", "normal mix=0 -> dry*gain", blend(dry, wet, 0.0, g, Mode::Normal), dry * g, 1e-12);
+    checkNear("mix", "normal mix=1 -> wet*gain", blend(dry, wet, 1.0, g, w1, Mode::Normal), wet * g, 1e-12);
+    checkNear("mix", "normal mix=0 -> dry*gain", blend(dry, wet, 0.0, g, w1, Mode::Normal), dry * g, 1e-12);
     checkNear("mix", "normal mix=0.5 -> avg*gain",
-              blend(dry, wet, 0.5, g, Mode::Normal), 0.5 * (dry + wet) * g, 1e-12);
+              blend(dry, wet, 0.5, g, w1, Mode::Normal), 0.5 * (dry + wet) * g, 1e-12);
 
     checkNear("mix", "delta -> (wet-dry)*gain, ignores mix",
-              blend(dry, wet, 0.37, g, Mode::Delta), (wet - dry) * g, 1e-12);
+              blend(dry, wet, 0.37, g, w1, Mode::Delta), (wet - dry) * g, 1e-12);
     checkNear("mix", "delta with wet==dry -> exact silence (bypassed processor soloes to 0)",
-              blend(dry, dry, 1.0, g, Mode::Delta), 0.0, 1e-12);
+              blend(dry, dry, 1.0, g, w1, Mode::Delta), 0.0, 1e-12);
 
     checkNear("mix", "bypass -> dry, ignores mix AND gain",
-              blend(dry, wet, 0.5, g, Mode::Bypass), dry, 1e-12);
+              blend(dry, wet, 0.5, g, w1, Mode::Bypass), dry, 1e-12);
+
+    // --- wet trim (sidebar): scales the WET component only, Normal + Delta,
+    // never Bypass, never the dry path. ---
+    const double wg = 0.5;  // wetTrim = -6.02 dB, an easy-to-verify factor
+    checkNear("wettrim", "normal mix=1 -> wet*wetGain*outGain",
+              blend(dry, wet, 1.0, g, wg, Mode::Normal), wet * wg * g, 1e-12);
+    checkNear("wettrim", "normal mix=0 -> dry untouched by wetGain",
+              blend(dry, wet, 0.0, g, wg, Mode::Normal), dry * g, 1e-12);
+    checkNear("wettrim", "normal mix=0.5 -> only wet half is trimmed",
+              blend(dry, wet, 0.5, g, wg, Mode::Normal), (0.5 * dry + 0.5 * wet * wg) * g, 1e-12);
+    checkNear("wettrim", "delta -> (wet*wetGain - dry)*outGain",
+              blend(dry, wet, 0.37, g, wg, Mode::Delta), (wet * wg - dry) * g, 1e-12);
+    checkNear("wettrim", "delta silence holds only at wetGain==1 (trim breaks the null)",
+              blend(dry, dry, 1.0, g, wg, Mode::Delta), (dry * wg - dry) * g, 1e-12);
+    checkNear("wettrim", "bypass ignores wetGain entirely",
+              blend(dry, wet, 0.5, g, wg, Mode::Bypass), dry, 1e-12);
 }
 
 // ============================================================
@@ -179,6 +263,55 @@ void verifyPublisher() {
         identical = (dst[static_cast<std::size_t>(i)] == src[static_cast<std::size_t>(i)]);
     check("pub", "seqlock write then read is identical", identical,
           ok ? "all 513 bins match" : "read failed");
+
+    pub.write(src.data(), 3);
+    bool zeroFilled = pub.read(dst.data(), SpectralNode::kNumBins);
+    for (std::size_t i = 0; i < dst.size(); ++i)
+        zeroFilled = zeroFilled && dst[i] == (i < 3 ? src[i] : 0.0f);
+    check("pub", "short snapshots zero-fill remaining bins", zeroFilled,
+          "three published bins followed by zeroes");
+
+    // Every frame has one repeated generation number. Any accepted mixture of
+    // generations is torn; rejected attempts must preserve the caller's frame.
+    constexpr int generations = 25000;
+    src.fill(0.0f);
+    pub.write(src.data(), SpectralNode::kNumBins);
+    std::atomic<bool> start{false};
+    std::thread writer([&] {
+        while (!start.load(std::memory_order_acquire))
+            std::this_thread::yield();
+        std::array<float, SpectralNode::kNumBins> frame{};
+        for (int generation = 1; generation <= generations; ++generation) {
+            frame.fill(static_cast<float>(generation));
+            pub.write(frame.data(), SpectralNode::kNumBins);
+        }
+    });
+    bool coherent = true;
+    bool preserved = true;
+    int accepted = 0;
+    int rejected = 0;
+    start.store(true, std::memory_order_release);
+    for (int attempt = 0; attempt < generations; ++attempt) {
+        const auto previous = dst;
+        if (pub.read(dst.data(), SpectralNode::kNumBins)) {
+            ++accepted;
+            for (const float value : dst)
+                coherent = coherent && value == dst[0];
+        } else {
+            ++rejected;
+            preserved = preserved && dst == previous;
+        }
+    }
+    writer.join();
+    bool finalFrame = pub.read(dst.data(), SpectralNode::kNumBins);
+    for (const float value : dst)
+        finalFrame = finalFrame && value == static_cast<float>(generations);
+    char d[160];
+    std::snprintf(d, sizeof d, "%d accepted / %d rejected concurrent reads", accepted, rejected);
+    check("pub", "concurrent accepted snapshots contain one generation", coherent, d);
+    check("pub", "rejected reads preserve the previous destination", preserved, d);
+    check("pub", "latest frame remains readable after writer stops", finalFrame,
+          "all 513 bins contain the final generation");
 }
 
 // ============================================================
@@ -251,6 +384,8 @@ void verifyNodePublish() {
 int main() {
     std::printf("=== 1. DisplayMap (three scales) ===\n");
     verifyDisplayMap();
+    std::printf("\n=== 1a. Weight-curve dB <-> y ===\n");
+    verifyWeightMap();
     std::printf("\n=== 1b. Starvation decay (display ballistics) ===\n");
     verifyDecay();
     std::printf("\n=== 2. mix/delta/bypass blend ===\n");

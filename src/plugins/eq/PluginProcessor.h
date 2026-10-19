@@ -7,7 +7,7 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 
 #include "dsp/MultibandEq.h"
-#include "plugins/eq/SpectrumFifo.h"
+#include "plugins/ui/SpectrumFifo.h"
 
 class MetaPluginProcessor : public juce::AudioProcessor {
 public:

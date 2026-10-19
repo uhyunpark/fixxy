@@ -7,6 +7,8 @@
 #include <vector>
 
 #include "dsp/SpectralFft.h"
+#include "dsp/SpectralWeight.h"
+#include "dsp/SpectralControl.h"
 
 /**
     Spectral dynamic-resonance suppressor (soothe-class) node — Stage 4, a
@@ -54,8 +56,12 @@
 
     src/dsp CONTRACT: prepare() does all allocation and all exp()/tanh-constant /
     interp coefficient work happens in setParams() (NEVER per hop, NEVER per
-    sample); process() is allocation-, lock-, IO-, logging-free with bounded work
-    (<= numSamples/hop + 1 hops per call). Double state throughout; JUCE-free,
+    sample). The one exception is the weight table: setParams only flags it
+    dirty, and the bounded recompute runs at the TOP of process() (NEVER inside
+    a hop, NEVER per sample), deferred so it never coincides with a hop burst at
+    small buffers (see computeWeightTable / process). process() is allocation-,
+    lock-, IO-, logging-free with bounded work (<= numSamples/hop + 1 hops, plus
+    at most one weight recompute, per call). Double state throughout; JUCE-free,
     atomic-free, header-only.
 */
 class SpectralNode {
@@ -92,6 +98,31 @@ public:
         double detail = 5.0;     // sharpness/selectivity: sets smoother width AND depth mult
         double attackMs = 27.0;  // measured soothe3 default (knob 5)
         double releaseMs = 50.0; // measured soothe3 default (knob 5)
+
+        // Weight-curve bands + range window (see dsp/SpectralWeight.h): summed
+        // into a per-bin dB table (computeWeightTable) and added to exceed
+        // before the knee in computeGain().
+        std::array<spectralweight::WeightBand, spectralweight::kMaxWeightBands> bands{};
+        double rangeLoHz = 20.0;
+        double rangeHiHz = 20000.0;
+
+        // ---- SIDEBAR globals (proto/spectral_sidebar.py). Every default is an
+        // EXACT no-op, proto-proven (gate1 default-identity): with these the node
+        // is bit-identical to the pre-sidebar shared-gain-map behaviour. ----
+        //
+        // scale group:
+        double maxCutDb = 24.0;    // clamp on per-bin reduction (dB); >= 24 => OFF (no clamp)
+        double wetTrimDb = 0.0;    // flat wet-path trim; NOT applied here — plugin's SpectralMix does it
+        // stereo group:
+        bool   msMode = false;     // L/R <-> M/S (energy-preserving /sqrt2) around the STFT; mono => no-op
+        double linkPct = 100.0;    // detection blend: det = (link/100)*maxMag + (1-link/100)*mag_ch
+        double focus = 0.0;        // per-channel depth bias: depth_ch = depth*(1 - max(0, sign_ch*focus))
+        // tilt group (x(f) = clip(log2(f/1000)/log2(16), -1, 1)):
+        double tiltAttack = 0.0;   // per-bin attack tau *= 2^(tiltAttack*x(f))
+        double tiltRelease = 0.0;  // per-bin release tau *= 2^(tiltRelease*x(f))
+        double tiltDetail = 0.0;   // per-bin depth mult *= clip(2^(tiltDetail*x(f)), ...), folded into max_db
+
+        bool operator==(const Params&) const = default;
     };
 
     SpectralNode() = default;
@@ -100,37 +131,55 @@ public:
         report) and precomputes the fs-dependent framing + envelope maps. */
     void prepare(double sampleRate, int maxBlockSize, int numChannels) {
         fs_ = sampleRate;
-        maxBlock_ = maxBlockSize;
+        capAlpha_ = std::exp(-static_cast<double>(kHop) / (fs_ * 0.020));
+        maxBlock_ = std::max(1, maxBlockSize);
         activeChannels_ = numChannels < kMaxChannels ? numChannels : kMaxChannels;
+        sqrt2_ = std::sqrt(2.0);  // M/S energy-preserving constant (proto np.sqrt(2.0))
 
         fft_.prepare(kFftSize);
 
         // sqrt-Hann analysis + synthesis (periodic Hann: /N, not /(N-1)).
+        double analysisWindowSum = 0.0;
         for (int n = 0; n < kFftSize; ++n) {
             const double hann = 0.5 - 0.5 * std::cos(2.0 * kPi * static_cast<double>(n)
                                                      / static_cast<double>(kFftSize));
             const double w = std::sqrt(hann);
             analysisWin_[static_cast<std::size_t>(n)] = w;
             synthWin_[static_cast<std::size_t>(n)] = w;
+            analysisWindowSum += w;
         }
+        hardAmplitudeScale_ = 2.0 / analysisWindowSum;
         norm_ = colaNorm();
 
         // Input FIFO capacity: at most a full block plus one hop of leftover.
-        fifoCap_ = maxBlockSize + kHop;
+        fifoCap_ = maxBlock_ + kHop;
         // Output ring: must exceed the live span of absolute output positions
         // touched within one process() call (~blockSize + hop), with a full-frame
         // margin. A small multiple of N over the block size is plenty.
-        ringSize_ = maxBlockSize + 2 * kFftSize;
+        ringSize_ = maxBlock_ + 2 * kFftSize;
 
         for (int ch = 0; ch < kMaxChannels; ++ch) {
             inFifo_[static_cast<std::size_t>(ch)].assign(static_cast<std::size_t>(fifoCap_), 0.0);
+            keyFifo_[static_cast<std::size_t>(ch)].assign(static_cast<std::size_t>(fifoCap_), 0.0);
             outBuf_[static_cast<std::size_t>(ch)].assign(static_cast<std::size_t>(ringSize_), 0.0);
         }
+        keyCountFifo_.assign(static_cast<std::size_t>(fifoCap_), 0);
 
         prepareEnvelopeMaps();
         medScratch_.assign(static_cast<std::size_t>(envK_), 0.0);
 
-        setParams(params_);
+        // Bin-static prewarp tangents tan(pi*f/fs) at f = k*df (df = fs/N). These
+        // are fs/N-static, so we hoist them out of the per-band weight recompute
+        // (Part 1). DC bin (f=0): tan(0)=0 exactly, matching the previous
+        // evalSection(recipe, fs, 0) path bit-for-bit.
+        const double dfTan = fs_ / static_cast<double>(kFftSize);
+        for (int k = 0; k < kNumBins; ++k)
+            tanTable_[static_cast<std::size_t>(k)] =
+                std::tan(kPi * (static_cast<double>(k) * dfTan) / fs_);
+
+        setParams(params_);           // resolves detail/ballistics + caches the weight subset
+        computeWeightTable(params_);  // full synchronous rebuild — off the audio thread
+        weightDirty_ = false;
         reset();
     }
 
@@ -140,17 +189,22 @@ public:
         inHead_ = 0;
         inCount_ = 0;
         hopsDone_ = 0;
+        effectiveCapDb_ = maxCutDb_ >= 24.0 ? kLegacyCapBound : maxCutDb_;
+        finalClampBypass_ = maxCutDb_ >= 24.0;
         totalEmitted_ = 0;
+        prevActive_ = false;  // Fix 3: no stale active->inactive edge after reset
         for (int ch = 0; ch < kMaxChannels; ++ch) {
             inputRing_[static_cast<std::size_t>(ch)].fill(0.0);
+            keyRing_[static_cast<std::size_t>(ch)].fill(0.0);
             olaBuffer_[static_cast<std::size_t>(ch)].fill(0.0);
             std::fill(outBuf_[static_cast<std::size_t>(ch)].begin(), outBuf_[static_cast<std::size_t>(ch)].end(), 0.0);
         }
-        for (int b = 0; b < kNumBins; ++b) {
-            ballS1_[static_cast<std::size_t>(b)] = 0.0;
-            ballY1_[static_cast<std::size_t>(b)] = 0.0;
-            redDb_[static_cast<std::size_t>(b)] = 0.0;  // ribbon reads 0 while idle/bypassed
+        for (int ch = 0; ch < kMaxChannels; ++ch) {
+            ballS1_[static_cast<std::size_t>(ch)].fill(0.0);
+            ballY1_[static_cast<std::size_t>(ch)].fill(0.0);
         }
+        for (int b = 0; b < kNumBins; ++b)
+            redDb_[static_cast<std::size_t>(b)] = 0.0;  // ribbon reads 0 while idle/bypassed
     }
 
     /** Resolve every coefficient from params: the detail-driven smoother width +
@@ -161,6 +215,19 @@ public:
         params_ = p;
         active_ = p.depth > 0.0;
 
+        // Weight table depends only on (bands, rangeLoHz, rangeHiHz) and fs/N.
+        // When that subset changes, only FLAG it dirty + cache the subset here;
+        // the actual recompute (~150 us) is deferred to process() (Part 2) so it
+        // never lands on a hop callback at small buffers. An unrelated
+        // depth/detail/attack tweak during a UI drag pays nothing.
+        if (p.bands != weightBands_ || p.rangeLoHz != weightLo_
+            || p.rangeHiHz != weightHi_) {
+            weightBands_ = p.bands;
+            weightLo_ = p.rangeLoHz;
+            weightHi_ = p.rangeHiHz;
+            weightDirty_ = true;
+        }
+
         // Detail curves (log-linear interp over anchors 0/5/10), from spectral_core.
         const double widthOct = interpDetailLog(p.detail, kW0, kW5, kW10);
         const double depthMult = interpDetailLog(p.detail, kM0, kM5, kM10);
@@ -169,14 +236,90 @@ public:
         // Octave smoother bin windows for the reduction curve (half-width = width/2).
         buildOctaveWindows(widthOct * 0.5, smootherLo_, smootherHi_);
 
+        // ---- SIDEBAR coefficient resolution (proto/spectral_sidebar.py). All the
+        // per-bin array fills below are bounded (<= 2 * kNumBins) and off the hop;
+        // at defaults every array collapses to the pre-sidebar scalar, bit-identically. ----
+        msMode_ = p.msMode;
+        maxCutDb_ = p.maxCutDb;
+        if (hopsDone_ == 0) {
+            effectiveCapDb_ = maxCutDb_ >= 24.0 ? kLegacyCapBound : maxCutDb_;
+            finalClampBypass_ = maxCutDb_ >= 24.0;
+        }
+
+        // focus depth bias: sign(+1) = channel A (L/M), sign(-1) = channel B (R/S).
+        // depth_ch = depth * (1 - max(0, sign*focus)). At focus=0 both == depth.
+        const double biasA = 1.0 - std::max(0.0, +1.0 * p.focus);
+        const double biasB = 1.0 - std::max(0.0, -1.0 * p.focus);
+        const double depthA = p.depth * biasA;
+        const double depthB = p.depth * biasB;
+        focusedDepth_ = {depthA, depthB};
+        coreActive_[0] = depthA > 0.0;
+        coreActive_[1] = depthB > 0.0;
+
+        // DUAL-CORE ENGAGE: only when the two channels can actually differ —
+        // link < 100 (detection differs) OR focus != 0 (depth differs). Otherwise
+        // keep the single shared gain-map path (one envelope, the hop's dominant
+        // cost); the proto proves that path is bit-identical to two linked cores.
+        const double link = p.linkPct / 100.0;
+        linkFrac_ = link;
+        const bool wantDual = (p.linkPct < 100.0) || (p.focus != 0.0);
+        // shared->dual: seed BOTH channel ballistics states from the shared state
+        // (channel 0), so the newly-split channel 1 resumes from the same place.
+        // Discrete param change; the per-bin attack/release resettle in ~50 ms —
+        // acceptable (soothe-class edits are not sample-accurate automation).
+        if (wantDual && !dualCore_) {
+            ballS1_[1] = ballS1_[0];
+            ballY1_[1] = ballY1_[0];
+        }
+        // dual->shared adopts channel 0's state automatically (shared path uses [0]).
+        dualCore_ = wantDual;
+
+        // Per-bin max_db (per channel: focus biases depth; tilt_detail biases the
+        // depth multiplier by frequency). tilt_detail == 0 => flat == the scalar
+        // maxDbScaled path, per bin, bit-identical.
+        if (p.tiltDetail != 0.0) {
+            for (int b = 0; b < kNumBins; ++b) {
+                const double x = tiltX(binFreq(b));
+                const double dm = clampD(depthMult * std::pow(2.0, p.tiltDetail * x), 0.25, 4.0);
+                maxDbArr_[0][static_cast<std::size_t>(b)] = kMaxDb * (depthA / 5.0) * dm;
+                maxDbArr_[1][static_cast<std::size_t>(b)] = kMaxDb * (depthB / 5.0) * dm;
+            }
+        } else {
+            const double a = kMaxDb * (depthA / 5.0) * depthMult;
+            const double bb = kMaxDb * (depthB / 5.0) * depthMult;
+            maxDbArr_[0].fill(a);
+            maxDbArr_[1].fill(bb);
+        }
+
         // Frame-rate ballistics: the control quantity only exists once per HOP, so
         // the smoother's "sample rate" is the FRAME rate fs/hop (spectral_ballistics).
+        // Per-bin arrays when a tilt is engaged; else flat == the pre-sidebar scalar.
         const double fsFrame = fs_ / static_cast<double>(kHop);
         aA_ = tauToAlpha(p.attackMs / 1000.0, fsFrame);
         aR_ = tauToAlpha(p.releaseMs / 1000.0, fsFrame);
+        if (p.tiltAttack != 0.0) {
+            for (int b = 0; b < kNumBins; ++b) {
+                const double tau = (p.attackMs / 1000.0) * std::pow(2.0, p.tiltAttack * tiltX(binFreq(b)));
+                aAArr_[static_cast<std::size_t>(b)] = tauToAlpha(tau, fsFrame);
+            }
+        } else {
+            aAArr_.fill(aA_);
+        }
+        if (p.tiltRelease != 0.0) {
+            for (int b = 0; b < kNumBins; ++b) {
+                const double tau = (p.releaseMs / 1000.0) * std::pow(2.0, p.tiltRelease * tiltX(binFreq(b)));
+                aRArr_[static_cast<std::size_t>(b)] = tauToAlpha(tau, fsFrame);
+            }
+        } else {
+            aRArr_.fill(aR_);
+        }
     }
 
     const Params& getParams() const { return params_; }
+    // Latest target-detector request, observed at the next completed hop.
+    // Keep the existing reduction history when switching; default remains Soft.
+    void setDetectionMode(int mode) noexcept { detectionMode_ = mode == 1 ? 1 : 0; }
+    void setExternalSidechainEnabled(bool enabled) noexcept { externalSidechain_ = enabled; }
     double getMaxDbScaled() const { return maxDbScaled_; }  // scaled reduction ceiling (for tests/UI)
 
     /** Copy the current per-bin reduction curve (dB, >= 0) into dst[0..n).
@@ -193,14 +336,57 @@ public:
 
     /** Audio thread. Pushes numSamples/channel, drains whole hops, emits exactly
         numSamples/channel of output delayed by N. Allocation-free. */
-    void process(float* const* channels, int numChannels, int numSamples) {
+    void process(float* const* channels, int numChannels, int numSamples,
+                 const float* const* key = nullptr, int keyChannels = 0) {
+        // Hosts may exceed their prepare-time block estimate. Keep both FIFO
+        // occupancy and the unread output-ring span within allocated capacity.
+        const int nCh = std::min(numChannels, activeChannels_);
+        for (int offset = 0; offset < numSamples;) {
+            const int count = std::min(maxBlock_, numSamples - offset);
+            std::array<float*, kMaxChannels> chunk{};
+            std::array<const float*, kMaxChannels> keyChunk{};
+            for (int ch = 0; ch < nCh; ++ch)
+                chunk[static_cast<std::size_t>(ch)] = channels[ch] + offset;
+            const int nKey = key == nullptr ? 0 : std::clamp(keyChannels, 0, kMaxChannels);
+            for (int ch = 0; ch < nKey; ++ch)
+                keyChunk[static_cast<std::size_t>(ch)] = key[ch] + offset;
+            processChunk(chunk.data(), nCh, count, keyChunk.data(), nKey);
+            offset += count;
+        }
+    }
+
+    static constexpr int latencySamples() { return kFftSize; }
+
+private:
+    void processChunk(float* const* channels, int numChannels, int numSamples,
+                      const float* const* key, int keyChannels) {
         const int nCh = numChannels < activeChannels_ ? numChannels : activeChannels_;
+
+        // 0) Deferred weight-table recompute (Part 2). Done here, at the TOP of
+        //    process (the light path), so it NEVER coincides with a hop callback
+        //    at small buffers. Recompute now UNLESS this call will cross a hop
+        //    boundary AND the block is small (< 128): then leave it dirty for the
+        //    next call, which at small buffers is hop-free. The table used until
+        //    the recompute lands is the previous one — acceptable: weight edits
+        //    are block-discrete and the per-bin ballistics smooth the audible
+        //    result. At numSamples >= 128 the per-block budget is large enough to
+        //    just do both, so we never defer there. Bounded, allocation-free.
+        if (weightDirty_) {
+            const bool willHop = (inCount_ + numSamples) >= kHop;
+            if (!(willHop && numSamples < 128)) {
+                computeWeightTable(params_);
+                weightDirty_ = false;
+            }
+        }
 
         // 1) Push this block's samples into each channel's FIFO (shared timing).
         for (int i = 0; i < numSamples; ++i) {
             const std::size_t slot = static_cast<std::size_t>((inHead_ + inCount_) % fifoCap_);
             for (int ch = 0; ch < nCh; ++ch)
                 inFifo_[static_cast<std::size_t>(ch)][slot] = static_cast<double>(channels[ch][i]);
+            for (int ch = 0; ch < kMaxChannels; ++ch)
+                keyFifo_[static_cast<std::size_t>(ch)][slot] = ch < keyChannels ? key[ch][i] : 0.0;
+            keyCountFifo_[slot] = keyChannels;
             ++inCount_;
         }
 
@@ -224,10 +410,17 @@ public:
         }
     }
 
-    static constexpr int latencySamples() { return kFftSize; }
-
-private:
     static constexpr double kPi = 3.14159265358979323846;
+
+    // Verified spectral_cap_wola.py policy: one shared 20 ms cap per hop.
+    // Soft can exceed 40 dB; stable Off must bypass the final clamp exactly.
+    static constexpr double kLegacyCapBound = 129.341082406575;
+    void advanceMaxCut() {
+        const double target = maxCutDb_ >= 24.0 ? kLegacyCapBound : maxCutDb_;
+        effectiveCapDb_ = capAlpha_ * effectiveCapDb_ + (1.0-capAlpha_) * target;
+        if (std::abs(effectiveCapDb_-target) <= 1e-6) effectiveCapDb_ = target;
+        finalClampBypass_ = maxCutDb_ >= 24.0 && effectiveCapDb_ == kLegacyCapBound;
+    }
 
     // ------------------------------------------------------------------
     // One hop: frame -> forward FFT (per ch) -> shared gain -> inverse FFT +
@@ -236,7 +429,27 @@ private:
     // sharing one gain map (spectral_core / spectral_ballistics frame_gain).
     // ------------------------------------------------------------------
     void processOneHop(int nCh) {
-        // (a) Per channel: slide the analysis ring by hop, window, forward FFT.
+        advanceMaxCut();  // before either lane, including inactive hops
+        // M/S is only meaningful with a true stereo pair; mono is a guard no-op.
+        const bool ms = msMode_ && nCh == 2;
+        const int keyChannels = keyCountFifo_[static_cast<std::size_t>((inHead_ + kHop - 1) % fifoCap_)];
+        // Keep physical L/R history warm independently of detection enable.
+        for (int ch = 0; ch < kMaxChannels; ++ch) {
+            auto& ring = keyRing_[static_cast<std::size_t>(ch)];
+            for (int n = 0; n < kFftSize-kHop; ++n)
+                ring[static_cast<std::size_t>(n)] = ring[static_cast<std::size_t>(n+kHop)];
+            for (int n = 0; n < kHop; ++n)
+                ring[static_cast<std::size_t>(kFftSize-kHop+n)] =
+                    keyFifo_[static_cast<std::size_t>(ch)][static_cast<std::size_t>((inHead_+n)%fifoCap_)];
+            if (externalSidechain_ && ch < keyChannels) {
+                for (int n = 0; n < kFftSize; ++n)
+                    keyFrame_[static_cast<std::size_t>(n)] = ring[static_cast<std::size_t>(n)]*analysisWin_[static_cast<std::size_t>(n)];
+                fft_.forward(keyFrame_.data(), keyRe_[static_cast<std::size_t>(ch)].data(),
+                             keyIm_[static_cast<std::size_t>(ch)].data());
+            }
+        }
+
+        // (a) Per channel: slide the analysis ring by hop, window into frameCh_.
         for (int ch = 0; ch < nCh; ++ch) {
             auto& ring = inputRing_[static_cast<std::size_t>(ch)];
             // ring = concat(ring[hop:], new hop) — shift left by hop, refill tail.
@@ -246,34 +459,94 @@ private:
                 const std::size_t slot = static_cast<std::size_t>((inHead_ + j) % fifoCap_);
                 ring[static_cast<std::size_t>(kFftSize - kHop + j)] = inFifo_[static_cast<std::size_t>(ch)][slot];
             }
+            auto& fr = frameCh_[static_cast<std::size_t>(ch)];
             for (int n = 0; n < kFftSize; ++n)
-                frame_[static_cast<std::size_t>(n)] =
+                fr[static_cast<std::size_t>(n)] =
                     ring[static_cast<std::size_t>(n)] * analysisWin_[static_cast<std::size_t>(n)];
-            fft_.forward(frame_.data(), specRe_[static_cast<std::size_t>(ch)].data(), specIm_[static_cast<std::size_t>(ch)].data());
         }
+        // M/S encode (energy-preserving /sqrt2), on the windowed frames — the ring
+        // history stays L/R for the next hop's slide. Linear, so encoding the
+        // windowed frame == windowing the encoded ring (proto encode_ms).
+        if (ms) {
+            auto& fA = frameCh_[0];
+            auto& fB = frameCh_[1];
+            for (int n = 0; n < kFftSize; ++n) {
+                const double L = fA[static_cast<std::size_t>(n)];
+                const double R = fB[static_cast<std::size_t>(n)];
+                fA[static_cast<std::size_t>(n)] = (L + R) / sqrt2_;
+                fB[static_cast<std::size_t>(n)] = (L - R) / sqrt2_;
+            }
+        }
+        for (int ch = 0; ch < nCh; ++ch)
+            fft_.forward(frameCh_[static_cast<std::size_t>(ch)].data(),
+                         specRe_[static_cast<std::size_t>(ch)].data(),
+                         specIm_[static_cast<std::size_t>(ch)].data());
         // Consume the hop from the shared FIFO.
         inHead_ = (inHead_ + kHop) % fifoCap_;
         inCount_ -= kHop;
 
-        // (b) Shared gain map from the max-across-channels magnitude, applied to
-        //     every channel's spectrum. Skipped entirely when inactive (identity).
+        // (b) Gain. Skipped entirely when inactive (identity).
         if (active_) {
-            for (int b = 0; b < kNumBins; ++b) {
-                double m = 0.0;
-                for (int ch = 0; ch < nCh; ++ch) {
-                    const double mag = std::hypot(specRe_[static_cast<std::size_t>(ch)][static_cast<std::size_t>(b)],
-                                                  specIm_[static_cast<std::size_t>(ch)][static_cast<std::size_t>(b)]);
-                    if (mag > m) m = mag;
-                }
-                detMag_[static_cast<std::size_t>(b)] = m;
-            }
-            computeGain();  // detMag_ -> gain_
-            for (int ch = 0; ch < nCh; ++ch)
+            if (dualCore_ && nCh == 2) {
+                // DUAL CORE: per-channel link-blended detection + independent
+                // ballistics. det_ch = link*maxMag + (1-link)*mag_ch.
                 for (int b = 0; b < kNumBins; ++b) {
-                    const double g = gain_[static_cast<std::size_t>(b)];
-                    specRe_[static_cast<std::size_t>(ch)][static_cast<std::size_t>(b)] *= g;
-                    specIm_[static_cast<std::size_t>(ch)][static_cast<std::size_t>(b)] *= g;
+                    const std::size_t bs = static_cast<std::size_t>(b);
+                    const double magA = detectorMagnitude(0, bs, nCh, keyChannels, ms);
+                    const double magB = detectorMagnitude(1, bs, nCh, keyChannels, ms);
+                    const double mx = magA > magB ? magA : magB;
+                    detA_[bs] = linkFrac_ * mx + (1.0 - linkFrac_) * magA;
+                    detB_[bs] = linkFrac_ * mx + (1.0 - linkFrac_) * magB;
                 }
+                computeGainImpl(detA_.data(), maxDbArr_[0].data(), 0, coreActive_[0],
+                                gainA_.data(), redA_.data());
+                computeGainImpl(detB_.data(), maxDbArr_[1].data(), 1, coreActive_[1],
+                                gainB_.data(), redB_.data());
+                for (int b = 0; b < kNumBins; ++b) {
+                    const std::size_t bs = static_cast<std::size_t>(b);
+                    specRe_[0][bs] *= gainA_[bs];
+                    specIm_[0][bs] *= gainA_[bs];
+                    specRe_[1][bs] *= gainB_[bs];
+                    specIm_[1][bs] *= gainB_[bs];
+                    // Published ribbon: the deeper of the two channel cuts.
+                    redDb_[bs] = redA_[bs] > redB_[bs] ? redA_[bs] : redB_[bs];
+                }
+            } else {
+                // SHARED CORE (linked common gain map): max-across-channels
+                // detection, ONE gain map on every channel — one envelope. This
+                // is the pre-sidebar path, bit-identical at sidebar defaults.
+                for (int b = 0; b < kNumBins; ++b) {
+                    double m = 0.0;
+                    for (int ch = 0; ch < nCh; ++ch) {
+                        const double mag = detectorMagnitude(ch, static_cast<std::size_t>(b), nCh, keyChannels, ms);
+                        if (mag > m) m = mag;
+                    }
+                    detMag_[static_cast<std::size_t>(b)] = m;
+                }
+                computeGainImpl(detMag_.data(), maxDbArr_[0].data(), 0, active_,
+                                gain_.data(), redDb_.data());
+                for (int ch = 0; ch < nCh; ++ch)
+                    for (int b = 0; b < kNumBins; ++b) {
+                        const double g = gain_[static_cast<std::size_t>(b)];
+                        specRe_[static_cast<std::size_t>(ch)][static_cast<std::size_t>(b)] *= g;
+                        specIm_[static_cast<std::size_t>(ch)][static_cast<std::size_t>(b)] *= g;
+                    }
+            }
+            prevActive_ = true;
+        } else if (prevActive_) {
+            // active -> inactive (depth dropped to 0): computeGain no longer runs,
+            // so redDb_ (published to the editor's reduction ribbon) and the
+            // ballistics state would otherwise freeze at their last values. Clear
+            // them ONCE on the transition to restore the documented invariant
+            // ("redDb reads 0 while idle") and so a later re-enable can't resume
+            // from stale envelope memory. Cheap: one pass, only on the edge.
+            for (int b = 0; b < kNumBins; ++b)
+                redDb_[static_cast<std::size_t>(b)] = 0.0;
+            for (int ch = 0; ch < kMaxChannels; ++ch) {
+                ballS1_[static_cast<std::size_t>(ch)].fill(0.0);
+                ballY1_[static_cast<std::size_t>(ch)].fill(0.0);
+            }
+            prevActive_ = false;
         }
 
         // (c) The h-th completed hop finalises absolute output positions
@@ -283,20 +556,39 @@ private:
         ++hopsDone_;
         const long long start = hopsDone_ * kHop - kFftSize;
 
+        // Decode each completed frame before accumulation. OLA history must
+        // always be L/R: decoding after OLA would reinterpret earlier frames
+        // in the new basis when msMode changes during their overlap.
+        for (int ch = 0; ch < nCh; ++ch)
+            fft_.inverse(specRe_[static_cast<std::size_t>(ch)].data(), specIm_[static_cast<std::size_t>(ch)].data(),
+                         frameCh_[static_cast<std::size_t>(ch)].data());
+        if (ms) {
+            for (int n = 0; n < kFftSize; ++n) {
+                const auto idx = static_cast<std::size_t>(n);
+                const double M = frameCh_[0][idx];
+                const double S = frameCh_[1][idx];
+                frameCh_[0][idx] = (M + S) / sqrt2_;
+                frameCh_[1][idx] = (M - S) / sqrt2_;
+            }
+        }
         for (int ch = 0; ch < nCh; ++ch) {
-            fft_.inverse(specRe_[static_cast<std::size_t>(ch)].data(), specIm_[static_cast<std::size_t>(ch)].data(), frame_.data());
             auto& ola = olaBuffer_[static_cast<std::size_t>(ch)];
             for (int n = 0; n < kFftSize; ++n)
                 ola[static_cast<std::size_t>(n)] +=
-                    frame_[static_cast<std::size_t>(n)] * synthWin_[static_cast<std::size_t>(n)];
+                    frameCh_[static_cast<std::size_t>(ch)][static_cast<std::size_t>(n)] * synthWin_[static_cast<std::size_t>(n)];
+        }
 
-            if (start >= 0) {
-                auto& out = outBuf_[static_cast<std::size_t>(ch)];
-                for (int j = 0; j < kHop; ++j) {
-                    const std::size_t idx = static_cast<std::size_t>((start + j) % ringSize_);
-                    out[idx] = ola[static_cast<std::size_t>(j)] * norm_;
-                }
+        // Output write and drain, always in L/R regardless of the current mode.
+        if (start >= 0) {
+            for (int j = 0; j < kHop; ++j) {
+                const std::size_t idx = static_cast<std::size_t>((start + j) % ringSize_);
+                for (int ch = 0; ch < nCh; ++ch)
+                    outBuf_[static_cast<std::size_t>(ch)][idx] =
+                        olaBuffer_[static_cast<std::size_t>(ch)][static_cast<std::size_t>(j)] * norm_;
             }
+        }
+        for (int ch = 0; ch < nCh; ++ch) {
+            auto& ola = olaBuffer_[static_cast<std::size_t>(ch)];
             // ola = concat(ola[hop:], zeros(hop)) — drain the finished hop.
             for (int n = 0; n < kFftSize - kHop; ++n)
                 ola[static_cast<std::size_t>(n)] = ola[static_cast<std::size_t>(n + kHop)];
@@ -305,21 +597,80 @@ private:
         }
     }
 
+    double detectorMagnitude(int channel, std::size_t bin, int mainChannels,
+                             int keyChannels, bool ms) const {
+        const auto ch = static_cast<std::size_t>(channel);
+        if (!externalSidechain_) return std::hypot(specRe_[ch][bin], specIm_[ch][bin]);
+        if (keyChannels == 0) return 0.0;
+        if (keyChannels == 1) return std::hypot(keyRe_[0][bin], keyIm_[0][bin]);
+        if (mainChannels == 1) {
+            const double a = std::hypot(keyRe_[0][bin], keyIm_[0][bin]);
+            const double b = std::hypot(keyRe_[1][bin], keyIm_[1][bin]);
+            return std::sqrt((a*a+b*b)*0.5);
+        }
+        if (ms) {
+            const double sign = channel == 0 ? 1.0 : -1.0;
+            return std::hypot((keyRe_[0][bin]+sign*keyRe_[1][bin])/sqrt2_,
+                              (keyIm_[0][bin]+sign*keyIm_[1][bin])/sqrt2_);
+        }
+        return std::hypot(keyRe_[ch][bin], keyIm_[ch][bin]);
+    }
+
     // ------------------------------------------------------------------
     // Gain map: env -> exceed -> tanh reduction -> octave smooth -> per-bin
     // ballistics -> 10^(-red/20). Reads detMag_, writes gain_. Shared per-bin
     // ballistics state (one s1/y1 set) because the gain map itself is shared.
     // ------------------------------------------------------------------
-    void computeGain() {
-        fastOctaveMedian();  // detMag_ -> env_
+    // One core's gain map: mag (detection spectrum) -> env -> exceed -> tanh knee
+    // -> (max_cut clamp) -> octave smooth -> per-bin ballistics -> 10^(-red/20).
+    // Parameterized so the SHARED path (one call) and the DUAL path (two calls,
+    // ball indices 0/1, per-channel maxDbArr) share one body. maxDbArr is per-bin
+    // (folds focus depth + tilt_detail); aAArr_/aRArr_ are per-bin (fold the tilt
+    // attack/release); at sidebar defaults these arrays are flat == the scalar
+    // pre-sidebar coefficients, so this is bit-identical there.
+    // An INACTIVE core (focus drove its depth to 0) returns unity gain and touches
+    // no ballistics state (proto frame_gain: `if not active: return ones`).
+    void computeGainImpl(const double* mag, const double* maxDbArr, int ballIdx,
+                         bool coreActive, double* outGain, double* outRed) {
+        if (!coreActive) {
+            for (int b = 0; b < kNumBins; ++b) {
+                outGain[b] = 1.0;
+                outRed[b] = 0.0;
+            }
+            return;
+        }
+        const bool zeroExternalDemand = externalSidechain_
+            && std::none_of(mag, mag+kNumBins, [](double value) { return value > 0.0; });
+        if (zeroExternalDemand) {
+            // Zero NEW demand, retaining the existing release recurrence below.
+            redRaw_.fill(0.0);
+        } else if (detectionMode_ == 1) {
+            // proto/spectral_hard_wola.py: absolute peak amplitude referred to
+            // the ACTUAL sqrt-Hann analysis window, not the COLA output norm.
+            // Retain legacy focus, MAX link, weights, width and ms ballistics.
+            // Hard ignores legacy Detail depth multiplier/tiltDetail strength.
+            const bool hasSignal = std::any_of(mag, mag+kNumBins, [](double value) { return value > 0.0; });
+            for (int b = 0; b < kNumBins; ++b) {
+                const auto bs = static_cast<std::size_t>(b);
+                const double amplitude = mag[b]*hardAmplitudeScale_*((b == 0 || b == kNumBins-1) ? 0.5 : 1.0);
+                double red = spectral_control::hardReduction(amplitude,
+                    focusedDepth_[static_cast<std::size_t>(ballIdx)], weightDb_[bs], hasSignal);
+                if (maxCutDb_ < 24.0 && red > maxCutDb_) red = maxCutDb_;
+                redRaw_[bs] = red;
+            }
+        } else {
+            fastOctaveMedian(mag);  // mag -> env_
 
-        for (int b = 0; b < kNumBins; ++b) {
-            const double mag = detMag_[static_cast<std::size_t>(b)];
-            const double env = env_[static_cast<std::size_t>(b)];
-            const double exceed = 20.0 * std::log10((mag + kEps) / (env + kEps));
-            const double red = maxDbScaled_ * 0.5
-                             * (1.0 + std::tanh((exceed - kKneeC) / kKneeW));
-            redRaw_[static_cast<std::size_t>(b)] = red;
+            for (int b = 0; b < kNumBins; ++b) {
+                const double env = env_[static_cast<std::size_t>(b)];
+                double exceed = 20.0 * std::log10((mag[b] + kEps) / (env + kEps));
+                exceed += weightDb_[static_cast<std::size_t>(b)];  // per-bin weight-curve bias, before the knee
+                double red = maxDbArr[b] * 0.5
+                           * (1.0 + std::tanh((exceed - kKneeC) / kKneeW));
+                if (maxCutDb_ < 24.0 && red > maxCutDb_)
+                    red = maxCutDb_;  // scale: max_cut clamp, after knee, before smoother
+                redRaw_[static_cast<std::size_t>(b)] = red;
+            }
         }
 
         // Octave boxcar smoothing of the reduction curve (prefix sum).
@@ -337,16 +688,49 @@ private:
         }
 
         // Per-bin frame-rate attack/release (smooth_decoupled_rtt), then gain.
+        auto& s1a = ballS1_[static_cast<std::size_t>(ballIdx)];
+        auto& y1a = ballY1_[static_cast<std::size_t>(ballIdx)];
         for (int b = 0; b < kNumBins; ++b) {
-            const double x = redSmooth_[static_cast<std::size_t>(b)];
-            double& s1 = ballS1_[static_cast<std::size_t>(b)];
-            double& y1 = ballY1_[static_cast<std::size_t>(b)];
-            const double relPole = aR_ * (s1 - x) + x;
+            const std::size_t bs = static_cast<std::size_t>(b);
+            const double x = redSmooth_[bs];
+            double& s1 = s1a[bs];
+            double& y1 = y1a[bs];
+            const double relPole = aRArr_[bs] * (s1 - x) + x;
             s1 = x > relPole ? x : relPole;   // s1 = max(x, aR*(s1-x)+x)
-            const double y = aA_ * (y1 - s1) + s1;
-            y1 = y;
-            redDb_[static_cast<std::size_t>(b)] = y;  // published to the editor's ribbon
-            gain_[static_cast<std::size_t>(b)] = std::pow(10.0, -y / 20.0);
+            const double y = aAArr_[bs] * (y1 - s1) + s1;
+            // Retain the capped output history, but preserve release state s1.
+            // This bounds spectral frame gain, not instantaneous OLA samples.
+            y1 = finalClampBypass_ ? y : std::min(y, effectiveCapDb_);
+            outRed[b] = y1;
+            outGain[b] = std::pow(10.0, -y1 / 20.0);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Per-bin weight table (proto/spectral_weight.py weight_db): for each bin
+    // centre f = k*fs/N,
+    //     weightDb_[k] = gateDb(f, lo, hi)
+    //                  + sum over enabled bands of the band's magnitude (dB).
+    // Both terms come from the single-source evaluators in SpectralWeight.h
+    // (shared with the editor's drawn curve). A BandWeightEval is built ONCE
+    // per band (recipe hoisted out of the 513-bin loop), and tan(pi*f/fs) is
+    // read from the precomputed tanTable_ (also hoisted). Runs at the top of
+    // process() when the weight subset is dirty (setParams only flags it) —
+    // deferred off hop callbacks; NEVER per hop or per sample. Allocation-free,
+    // bounded (<= 8 bands x 513 bins of closed-form complex algebra).
+    void computeWeightTable(const Params& p) {
+        const double df = fs_ / static_cast<double>(kFftSize);
+
+        for (int k = 0; k < kNumBins; ++k)
+            weightDb_[static_cast<std::size_t>(k)] =
+                spectralweight::gateDb(static_cast<double>(k) * df, p.rangeLoHz, p.rangeHiHz);
+
+        for (const auto& band : p.bands) {
+            if (!band.on) continue;
+            const spectralweight::BandWeightEval eval(band, fs_);  // recipe hoisted once per band
+            for (int k = 0; k < kNumBins; ++k)
+                weightDb_[static_cast<std::size_t>(k)] +=
+                    eval.db(static_cast<double>(k) * df, tanTable_[static_cast<std::size_t>(k)]);
         }
     }
 
@@ -354,33 +738,66 @@ private:
     // median filter (mode="nearest", edge replication) -> resample back. The
     // interp index/weight maps and k are precomputed in prepare; DC passes
     // through. detMag_ -> env_.
-    void fastOctaveMedian() {
+    void fastOctaveMedian(const double* mag) {
         const int P = kNumBins - 1;   // positive bins (exclude DC): 512
         // Resample |mag| (positive bins) onto the uniform log-f grid.
         for (int g = 0; g < kEnvGridM; ++g) {
             const int idx = fwdIdx_[static_cast<std::size_t>(g)];
             const double w = fwdW_[static_cast<std::size_t>(g)];
-            const double a = detMag_[static_cast<std::size_t>(idx + 1)];       // +1: skip DC
-            const double bnext = detMag_[static_cast<std::size_t>(idx + 2)];
+            const double a = mag[idx + 1];       // +1: skip DC
+            const double bnext = mag[idx + 2];
             onGrid_[static_cast<std::size_t>(g)] = a + w * (bnext - a);
         }
-        // Centred median filter, size k, edges clamped (mode="nearest").
-        const int khalf = envK_ / 2;
-        for (int g = 0; g < kEnvGridM; ++g) {
+        // Centred median filter, size k, edges clamped (mode="nearest"). An
+        // incrementally-maintained SORTED window replaces the old per-grid-point
+        // copy + std::nth_element: for the interior (window fully inside the grid)
+        // the window slides by exactly one, so one value leaves and one enters,
+        // each an O(k) lower_bound + shift into medScratch_ (the sorted buffer,
+        // sized to envK_ in prepare). The edge-clamped points (first/last khalf,
+        // where boundary values repeat and the slide isn't a clean single in/out)
+        // fall back to a full rebuild+sort. This is bit-identical to the old path
+        // (same median = element khalf of the sorted length-k window, same
+        // clamped windows) — verified max|incremental - nth_element| = 0 over the
+        // synthetic magnitude grid (scratchpad/median_algo_bench.cpp), and it is
+        // the dominant hop cost (~82% of the envelope stage). med_[g] reads the
+        // window's middle element (k is odd, so khalf = (k-1)/2 is the median).
+        const int k = envK_;
+        const int khalf = k / 2;
+        double* const win = medScratch_.data();  // sorted window, length k
+
+        auto rebuildAt = [&](int g) {
             for (int w = -khalf; w <= khalf; ++w) {
                 int idx = g + w;
                 if (idx < 0) idx = 0;
                 if (idx > kEnvGridM - 1) idx = kEnvGridM - 1;
-                medScratch_[static_cast<std::size_t>(w + khalf)] =
-                    onGrid_[static_cast<std::size_t>(idx)];
+                win[w + khalf] = onGrid_[static_cast<std::size_t>(idx)];
             }
-            std::nth_element(medScratch_.begin(),
-                             medScratch_.begin() + khalf,
-                             medScratch_.end());
-            med_[static_cast<std::size_t>(g)] = medScratch_[static_cast<std::size_t>(khalf)];
+            std::sort(win, win + k);
+        };
+
+        const int loEdge = khalf;                 // g <= loEdge: left-clamped
+        const int hiEdge = kEnvGridM - 1 - khalf;  // g >  hiEdge: right-clamped
+        rebuildAt(0);
+        med_[0] = win[khalf];
+        for (int g = 1; g < kEnvGridM; ++g) {
+            if (g <= loEdge || g > hiEdge) {
+                rebuildAt(g);
+            } else {
+                // Interior: window slides by one. Erase the leaving value (present,
+                // so lower_bound lands on it), then insert the entering value at
+                // its sorted position — both O(k), buffer stays length k and sorted.
+                const double leaving = onGrid_[static_cast<std::size_t>(g - 1 - khalf)];
+                const double entering = onGrid_[static_cast<std::size_t>(g + khalf)];
+                double* const itL = std::lower_bound(win, win + k, leaving);
+                std::move(itL + 1, win + k, itL);          // shift tail down over the gap
+                double* const itE = std::lower_bound(win, win + (k - 1), entering);
+                std::move_backward(itE, win + (k - 1), win + k);  // open a slot
+                *itE = entering;
+            }
+            med_[static_cast<std::size_t>(g)] = win[khalf];
         }
         // Resample the median back onto the positive bins; DC passes through.
-        env_[0] = detMag_[0];
+        env_[0] = mag[0];
         for (int i = 0; i < P; ++i) {
             const int idx = bwdIdx_[static_cast<std::size_t>(i)];
             const double w = bwdW_[static_cast<std::size_t>(i)];
@@ -523,16 +940,64 @@ private:
         return std::exp(-1.0 / (tauS * fsFrame));
     }
 
+    // Bin centre frequency f = k*fs/N.
+    double binFreq(int k) const {
+        return static_cast<double>(k) * (fs_ / static_cast<double>(kFftSize));
+    }
+
+    // Tilt frequency axis: x(f) = clip(log2(f/1000)/log2(16), -1, 1); f<=0 (DC)
+    // guarded to a tiny positive placeholder so it lands at the -1 floor, not -inf
+    // (proto tilt_x). ±4 octaves around 1 kHz map to ±1.
+    static double tiltX(double f) {
+        const double safe = f > 1e-9 ? f : 1e-9;
+        const double x = std::log2(safe / 1000.0) / std::log2(16.0);
+        return x < -1.0 ? -1.0 : (x > 1.0 ? 1.0 : x);
+    }
+
+    static double clampD(double v, double lo, double hi) {
+        return v < lo ? lo : (v > hi ? hi : v);
+    }
+
     // ---- config / coefficients (resolved off-thread) ----
     double fs_ = 44100.0;
     int maxBlock_ = 0;
     int activeChannels_ = kMaxChannels;
     Params params_{};
+    int detectionMode_ = 0;
+    bool externalSidechain_ = false;
+    double hardAmplitudeScale_ = 1.0;
+    std::array<double, kMaxChannels> focusedDepth_{{5.0, 5.0}};
     bool active_ = true;
+    bool prevActive_ = false;  // Fix 3: tracks the active->inactive edge for redDb_ reset
 
     double norm_ = 1.0;
     double maxDbScaled_ = kMaxDb;
     double aA_ = 0.0, aR_ = 0.0;
+
+    // ---- SIDEBAR resolved coefficients / state (set in setParams) ----
+    double sqrt2_ = 1.4142135623730951;   // set in prepare = std::sqrt(2.0), for M/S
+    bool msMode_ = false;
+    bool dualCore_ = false;                // two independent cores engaged (link<100 || focus!=0)
+    double maxCutDb_ = 24.0;               // >= 24 => clamp OFF
+    double capAlpha_ = 0.0;
+    double effectiveCapDb_ = kLegacyCapBound;
+    bool finalClampBypass_ = true;
+    double linkFrac_ = 1.0;                // linkPct/100
+    std::array<bool, kMaxChannels> coreActive_{{true, true}};  // depth_ch > 0 per channel
+    std::array<double, kNumBins> aAArr_{};  // per-bin attack alpha (flat == aA_ when tilt off)
+    std::array<double, kNumBins> aRArr_{};  // per-bin release alpha (flat == aR_ when tilt off)
+    std::array<std::array<double, kNumBins>, kMaxChannels> maxDbArr_{};  // per-channel per-bin max_db
+
+    // Bin-static prewarp tangents tan(pi*f/fs), f = k*fs/N — filled in prepare,
+    // hoisted out of the per-band weight recompute (Part 1).
+    std::array<double, kNumBins> tanTable_{};
+
+    // Weight table + the last weight-subset it was built from (change detection).
+    std::array<double, kNumBins> weightDb_{};
+    std::array<spectralweight::WeightBand, spectralweight::kMaxWeightBands> weightBands_{};
+    double weightLo_ = 20.0;
+    double weightHi_ = 20000.0;
+    bool weightDirty_ = true;
 
     int fifoCap_ = 0;
     int ringSize_ = 0;
@@ -559,18 +1024,27 @@ private:
     long long totalEmitted_ = 0;
 
     std::array<std::array<double, kFftSize>, kMaxChannels> inputRing_{};
+    std::array<std::array<double, kFftSize>, kMaxChannels> keyRing_{};
+    std::array<std::vector<double>, kMaxChannels> keyFifo_{};
+    std::vector<int> keyCountFifo_;
     std::array<std::array<double, kFftSize>, kMaxChannels> olaBuffer_{};
     std::array<std::vector<double>, kMaxChannels> inFifo_{};
     std::array<std::vector<double>, kMaxChannels> outBuf_{};
 
-    std::array<double, kNumBins> ballS1_{};
-    std::array<double, kNumBins> ballY1_{};
+    // Per-channel ballistics state (index 0 = shared/channel A, 1 = channel B).
+    std::array<std::array<double, kNumBins>, kMaxChannels> ballS1_{};
+    std::array<std::array<double, kNumBins>, kMaxChannels> ballY1_{};
 
     // ---- per-hop scratch (no allocation on the audio thread) ----
-    std::array<double, kFftSize> frame_{};
+    std::array<std::array<double, kFftSize>, kMaxChannels> frameCh_{};  // windowed frames (M/S encode acts here)
     std::array<std::array<double, kNumBins>, kMaxChannels> specRe_{};
     std::array<std::array<double, kNumBins>, kMaxChannels> specIm_{};
-    std::array<double, kNumBins> detMag_{};
+    std::array<double, kFftSize> keyFrame_{};
+    std::array<std::array<double, kNumBins>, kMaxChannels> keyRe_{}, keyIm_{};
+    std::array<double, kNumBins> detMag_{};      // shared-path detection (max across channels)
+    std::array<double, kNumBins> detA_{}, detB_{};  // dual-path per-channel detection
+    std::array<double, kNumBins> gainA_{}, gainB_{};  // dual-path per-channel gain
+    std::array<double, kNumBins> redA_{}, redB_{};    // dual-path per-channel reduction dB
     std::array<double, kNumBins> env_{};
     std::array<double, kNumBins> redRaw_{};
     std::array<double, kNumBins> redSmooth_{};

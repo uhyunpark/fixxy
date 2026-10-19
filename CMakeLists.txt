@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.25)
 project(LpngSound VERSION 0.1.0)
 
+# 빌드 타입 미지정 = CMake 기본값이 빈 값(-O0) — DAW에서 시스템 과부하를 일으킨다
+# (PROJECT.md 함정). 기본을 Release로 강제.
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -17,7 +23,9 @@ function(lpng_add_plugin)
     cmake_parse_arguments(ARG "" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
     juce_add_plugin(${ARG_TARGET}
-        COMPANY_NAME "uhyun"
+        BUNDLE_ID "com.uhyun.${ARG_TARGET}"
+        AU_EXPORT_PREFIX "Lpng${ARG_TARGET}AU"
+        COMPANY_NAME "fixxy"
         PLUGIN_MANUFACTURER_CODE Uhyn
         PLUGIN_CODE ${ARG_PLUGIN_CODE}
         FORMATS VST3 AU Standalone
@@ -64,15 +72,15 @@ endfunction()
 
 lpng_add_plugin(
     TARGET EQ
-    PRODUCT_NAME "LpngEQ"
+    PRODUCT_NAME "fixxy EQ"
     PLUGIN_CODE Lpeq
     SOURCES
         src/plugins/eq/PluginProcessor.cpp
-        src/plugins/eq/SpectrumFifo.h
+        src/plugins/ui/SpectrumFifo.h
         src/plugins/eq/ui/CoordMap.h
         src/plugins/eq/ui/BackgroundPanel.h
         src/plugins/eq/ui/CurveView.h
-        src/plugins/eq/ui/AnalyzerEngine.h
+        src/plugins/ui/AnalyzerEngine.h
         src/plugins/eq/ui/AnalyzerView.h
         src/plugins/eq/ui/DraggerLayer.h
         src/plugins/eq/ui/EqEditor.h
@@ -84,7 +92,7 @@ lpng_add_plugin(
 
 lpng_add_plugin(
     TARGET Comp
-    PRODUCT_NAME "LpngComp"
+    PRODUCT_NAME "fixxy Comp"
     PLUGIN_CODE Lpcm
     SOURCES
         src/plugins/comp/PluginProcessor.cpp
@@ -100,7 +108,7 @@ lpng_add_plugin(
 
 lpng_add_plugin(
     TARGET Spectral
-    PRODUCT_NAME "LpngSpectral"
+    PRODUCT_NAME "fixxy Spectral"
     PLUGIN_CODE Lpsp
     SOURCES
         src/plugins/spectral/PluginProcessor.cpp
@@ -109,9 +117,10 @@ lpng_add_plugin(
         src/plugins/spectral/ReductionPublisher.h
         src/plugins/spectral/ui/SpectralDisplayMap.h
         src/plugins/spectral/ui/SpectralAnalyzerView.h
+        src/plugins/spectral/ui/WeightBandLayer.h
         src/plugins/spectral/ui/SpectralEditor.h
-        src/plugins/eq/SpectrumFifo.h
-        src/plugins/eq/ui/AnalyzerEngine.h
+        src/plugins/ui/SpectrumFifo.h
+        src/plugins/ui/AnalyzerEngine.h
         src/dsp/SpectralNode.h
         src/dsp/SpectralFft.h
 )
@@ -189,6 +198,23 @@ target_include_directories(SpectralNodeTest PRIVATE ${CMAKE_SOURCE_DIR}/src ${CM
 target_compile_features(SpectralNodeTest PRIVATE cxx_std_20)
 set_source_files_properties(test/spectral_node_test.cpp PROPERTIES
     COMPILE_OPTIONS "-Wall;-Wextra;-Wconversion;-Wshadow")
+# SpectralFft.h uses the double vDSP real FFT (vDSP_fft_zripD) on macOS.
+if(APPLE)
+    target_link_libraries(SpectralNodeTest PRIVATE "-framework Accelerate")
+endif()
+
+# Verified MaxCut automation, retained histories and prepared heap audit.
+foreach(cap_target SpectralCapNodeTest SpectralCapScalarTest)
+    add_executable(${cap_target} test/spectral_cap_node_test.cpp)
+    target_include_directories(${cap_target} PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/test)
+    target_compile_features(${cap_target} PRIVATE cxx_std_20)
+    if(APPLE)
+        target_link_libraries(${cap_target} PRIVATE "-framework Accelerate")
+    endif()
+endforeach()
+target_compile_definitions(SpectralCapScalarTest PRIVATE SPECTRALFFT_FORCE_SCALAR=1)
+set_source_files_properties(test/spectral_cap_node_test.cpp PROPERTIES
+    COMPILE_OPTIONS "-Wall;-Wextra;-Wconversion;-Wshadow")
 
 # Offline unit test: the LpngSpectral editor UI/publish seams — DisplayMap's
 # three separate scales (freq log x, spectrum level dB, reduction ribbon extent),
@@ -201,6 +227,10 @@ target_include_directories(SpectralUiMapTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_compile_features(SpectralUiMapTest PRIVATE cxx_std_20)
 set_source_files_properties(test/spectral_ui_map_test.cpp PROPERTIES
     COMPILE_OPTIONS "-Wall;-Wextra;-Wconversion;-Wshadow")
+# SpectralFft.h uses the double vDSP real FFT (vDSP_fft_zripD) on macOS.
+if(APPLE)
+    target_link_libraries(SpectralUiMapTest PRIVATE "-framework Accelerate")
+endif()
 
 juce_add_console_app(AnalyzerEngineTest PRODUCT_NAME "AnalyzerEngineTest")
 target_sources(AnalyzerEngineTest PRIVATE test/analyzer_engine_test.cpp)
@@ -215,3 +245,81 @@ target_link_libraries(AnalyzerEngineTest
         juce::juce_dsp
         juce::juce_recommended_config_flags
 )
+
+# Exercise the real APVTS -> processor -> delayed output seam using the same
+# shared code as the plugin, without building or copying a plugin wrapper.
+add_executable(SpectralProcessorTest test/spectral_processor_test.cpp)
+target_include_directories(SpectralProcessorTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/external/JUCE/modules)
+target_compile_definitions(SpectralProcessorTest PRIVATE
+    JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1
+    JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0 JucePlugin_Name="fixxy Spectral")
+target_link_libraries(SpectralProcessorTest PRIVATE Spectral)
+set_source_files_properties(test/spectral_processor_test.cpp PROPERTIES
+    COMPILE_OPTIONS "-Wall;-Wextra;-Wconversion;-Wshadow")
+
+# Processor-owned editor workflow: host-notifying A/B snapshots, undoable preset
+# loads and workflow metadata in the processor state wrapper.
+add_executable(SpectralWorkflowTest test/spectral_workflow_test.cpp)
+target_include_directories(SpectralWorkflowTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/external/JUCE/modules)
+target_compile_definitions(SpectralWorkflowTest PRIVATE
+    JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1
+    JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0 JucePlugin_Name="fixxy Spectral")
+target_link_libraries(SpectralWorkflowTest PRIVATE Spectral)
+set_source_files_properties(test/spectral_workflow_test.cpp PROPERTIES
+    COMPILE_OPTIONS "-Wall;-Wextra;-Wconversion;-Wshadow")
+
+# Offline reference host: loads installed VST3/AU plug-ins through JUCE's public
+# hosting API, inspects their automation surface/latency, and renders WAV files.
+juce_add_console_app(ReferencePluginHost PRODUCT_NAME "ReferencePluginHost")
+target_sources(ReferencePluginHost PRIVATE test/reference_plugin_host.cpp)
+target_compile_definitions(ReferencePluginHost PRIVATE
+    JUCE_PLUGINHOST_VST3=1
+    JUCE_PLUGINHOST_AU=1
+    JUCE_STANDALONE_APPLICATION=1
+    JUCE_USE_CURL=0
+    JUCE_WEB_BROWSER=0
+)
+target_link_libraries(ReferencePluginHost
+    PRIVATE
+        juce::juce_audio_formats
+        juce::juce_audio_processors
+        juce::juce_recommended_config_flags
+)
+if(APPLE)
+    target_link_libraries(ReferencePluginHost PRIVATE
+        "-framework AudioUnit"
+        "-framework CoreAudioKit")
+endif()
+set_source_files_properties(test/reference_plugin_host.cpp PROPERTIES
+    COMPILE_OPTIONS "-Wall;-Wextra;-Wconversion;-Wshadow")
+
+# Verified static minimum-phase FIR synthesis and zero-buffer-delay convolution.
+foreach(fir_target IN ITEMS SpectralFirTest SpectralFirScalarTest)
+    add_executable(${fir_target} test/spectral_fir_test.cpp)
+    target_include_directories(${fir_target} PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/test)
+    target_compile_features(${fir_target} PRIVATE cxx_std_20)
+    target_compile_options(${fir_target} PRIVATE -Wall -Wextra -Wconversion -Wshadow)
+endforeach()
+target_compile_definitions(SpectralFirScalarTest PRIVATE SPECTRALFFT_FORCE_SCALAR=1)
+if(APPLE)
+    target_link_libraries(SpectralFirTest PRIVATE "-framework Accelerate")
+endif()
+
+# Verified spectral control maps, exact median, smoothing and decoupled state.
+add_executable(SpectralControlTest test/spectral_control_test.cpp)
+target_include_directories(SpectralControlTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_features(SpectralControlTest PRIVATE cxx_std_20)
+target_compile_options(SpectralControlTest PRIVATE -Wall -Wextra -Wconversion -Wshadow)
+
+foreach(transition_target IN ITEMS SpectralTransitionTest SpectralTransitionScalarTest)
+    add_executable(${transition_target} test/spectral_transition_test.cpp)
+    target_include_directories(${transition_target} PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_compile_features(${transition_target} PRIVATE cxx_std_20)
+    target_compile_options(${transition_target} PRIVATE -Wall -Wextra -Wconversion -Wshadow)
+endforeach()
+target_compile_definitions(SpectralTransitionScalarTest PRIVATE SPECTRALFFT_FORCE_SCALAR=1)
+if(APPLE)
+    target_link_libraries(SpectralTransitionTest PRIVATE "-framework Accelerate")
+endif()

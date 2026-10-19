@@ -9,8 +9,8 @@
 
 #include "dsp/SpectralNode.h"
 #include "plugins/LpngLookAndFeel.h"
-#include "plugins/eq/SpectrumFifo.h"
-#include "plugins/eq/ui/AnalyzerEngine.h"
+#include "plugins/ui/SpectrumFifo.h"
+#include "plugins/ui/AnalyzerEngine.h"
 #include "plugins/spectral/ReductionPublisher.h"
 #include "plugins/spectral/ui/SpectralDisplayMap.h"
 
@@ -22,6 +22,21 @@
     being cut), visually connected to the spectrum below rather than dangling off
     the top edge.
 
+    DELTA MODE: when the editor's delta pill is on, the well shows ONLY an ember
+    path spiking UPWARD from the baseline, in place of the azure input spectrum +
+    ribbon. It draws the SAME per-bin REDUCTION data the ribbon draws (the node's
+    published gain reduction), on the SAME reduction scale (ribbonExtentPx of the
+    same cap), just mirrored UP from the baseline instead of hanging down. So the
+    excursion for a given cut is pixel-identical between delta ON (up-spike) and
+    delta OFF (down-ribbon) by construction — the only difference is direction.
+    The azure input spectrum does NOT draw in delta mode. (This is DISPLAY only:
+    the processor's delta AUDIO tap and SpectralMix are untouched.)
+
+    BYPASS: our bypass pill wins over delta for DISPLAY too, mirroring the
+    audio's own precedence (SpectralMix.h) — while bypassed, the ribbon is
+    suppressed and delta is forced back to the normal spectrum view, so the
+    well never looks "live" while the audio is a transparent passthrough.
+
     STARVATION DECAY (display behaviour, NOT DSP): if the specFifo delivers no
     new frames for kStarveGraceTicks (the host stopped calling processBlock —
     e.g. Logic's own power-button bypass), the shown spectrum decays toward the
@@ -29,15 +44,14 @@
     OWN bypass pill never triggers this: processBlock still taps specFifo and
     runs the node under our bypass, so the analyzer stays live there.
 
-    Reuses the EQ's proven AnalyzerEngine + SpectrumFifo (falling-spectrum, 30 Hz)
-    directly; the coupling to plugins/eq/ui is deliberate for now and flagged as a
-    future shared-ui refactor item (a plain `#include`, no EQ state pulled in).
+    Reuses the shared AnalyzerEngine + SpectrumFifo (falling-spectrum, 30 Hz) from
+    plugins/ui directly (a plain `#include`, no EQ state pulled in).
 
     TWO SEPARATE SCALES on one rectangle (the analyzer lesson, applied again):
     the spectrum is drawn on DisplayMap's spectrum-LEVEL window (-90..0 dBFS-ish),
     the ribbon on DisplayMap's REDUCTION window (0..kMaxRibbonDb of cut). They are
     different physical quantities and never share a y-axis. Frequency (x, log
-    100..16k) is the one shared axis. All the coordinate math lives in the
+    20..20k) is the one shared axis. All the coordinate math lives in the
     JUCE-free DisplayMap so it is unit-tested (test/spectral_ui_map_test.cpp).
 
     Threading: its own 30 Hz timer drains the processor's specFifo and reads the
@@ -50,9 +64,21 @@ public:
 
     SpectralAnalyzerView(SpectrumFifo& fifoIn,
                          ReductionPublisher<SpectralNode::kNumBins>& reductionIn,
-                         const std::atomic<double>& hostFs)
-        : fifo(fifoIn), reduction(reductionIn), hostSampleRate(hostFs) {
+                         const std::atomic<double>& hostFs,
+                         const std::atomic<float>& deltaParam,
+                         const std::atomic<float>& bypassParam,
+                         // FIELD DIAGNOSTIC (temporary): callback-load atomics.
+                         const std::atomic<float>& cbLastPctIn,
+                         const std::atomic<float>& cbMaxPctIn)
+        : fifo(fifoIn), reduction(reductionIn), hostSampleRate(hostFs), deltaParam(deltaParam),
+          bypassParam(bypassParam), cbLastPct(cbLastPctIn), cbMaxPct(cbMaxPctIn) {
         setInterceptsMouseClicks(false, false);
+        // OPAQUE: our 30 Hz analyzer tick repaints this view; being opaque stops
+        // JUCE walking up to repaint the full editor ancestor stack (cream bg,
+        // stone rail, hairlines, header) under every tick — the whole reason
+        // the editor being open cost message-thread time. paint() below covers
+        // every pixel of our bounds so this is safe.
+        setOpaque(true);
 
         const float logMin = std::log10(spectralui::DisplayMap::kMinFreq);
         const float logMax = std::log10(spectralui::DisplayMap::kMaxFreq);
@@ -83,6 +109,13 @@ public:
         namespace pl = lpng::palettelight;
         auto well = getLocalBounds().toFloat();
 
+        // Opaque contract: cover every pixel. The rounded well leaves the four
+        // corners uncovered, so fill the whole rect with the editor's window
+        // colour first (the same paper that sits behind the well), then paint
+        // the rounded white well on top — visually identical to the previous
+        // transparent view, but now nothing shows through.
+        g.fillAll(pl::col(pl::window));
+
         // White well with a stone hairline inset (no shadow — paper).
         g.setColour(pl::col(pl::displayWell));
         g.fillRoundedRectangle(well, lpng::metrics::kCornerCard);
@@ -92,29 +125,66 @@ public:
         drawGrid(g);
         drawReductionBaseline(g);
 
-        // Input spectrum: azure translucent fill + azure line.
-        g.setColour(pl::col(pl::dataPost).withAlpha(0.11f));
-        g.fillPath(specFillPath);
-        g.setColour(pl::col(pl::dataPost));
-        g.strokePath(specLinePath, juce::PathStrokeType(1.6f, juce::PathStrokeType::curved,
-                                                        juce::PathStrokeType::rounded));
+        if (deltaMode) {
+            // Delta mode: the same per-bin reduction the ribbon draws, mirrored
+            // UPWARD from the baseline (same scale, opposite direction) — the
+            // ember "action" colours the ribbon uses.
+            g.setColour(pl::col(pl::reduceFill));
+            g.fillPath(deltaFillPath);
+            g.setColour(pl::col(pl::accent));
+            g.strokePath(deltaLinePath, juce::PathStrokeType(1.4f, juce::PathStrokeType::curved,
+                                                              juce::PathStrokeType::rounded));
+        } else {
+            // Input spectrum: azure translucent fill + azure line.
+            g.setColour(pl::col(pl::dataPost).withAlpha(0.11f));
+            g.fillPath(specFillPath);
+            g.setColour(pl::col(pl::dataPost));
+            g.strokePath(specLinePath, juce::PathStrokeType(1.6f, juce::PathStrokeType::curved,
+                                                            juce::PathStrokeType::rounded));
 
-        // Reduction ribbon: ember region hanging from the top + ember contour.
-        g.setColour(pl::col(pl::reduceFill));
-        g.fillPath(ribbonFillPath);
-        g.setColour(pl::col(pl::accent));
-        g.strokePath(ribbonLinePath, juce::PathStrokeType(1.4f, juce::PathStrokeType::curved,
-                                                          juce::PathStrokeType::rounded));
+            // Reduction ribbon: ember region hanging from the top + ember contour.
+            g.setColour(pl::col(pl::reduceFill));
+            g.fillPath(ribbonFillPath);
+            g.setColour(pl::col(pl::accent));
+            g.strokePath(ribbonLinePath, juce::PathStrokeType(1.4f, juce::PathStrokeType::curved,
+                                                              juce::PathStrokeType::rounded));
+        }
 
         drawAxisText(g);
+        drawCallbackLoad(g);  // FIELD DIAGNOSTIC (temporary)
     }
 
 private:
+    // FIELD DIAGNOSTIC (temporary): small muted "cb N% | max N%" readout in the
+    // bottom-left of the well (clear of the freq numerals up top, the reduction
+    // dB ticks at mid-well left, and the spectrum dBFS numerals on the right).
+    // Colour-shifts to ember at >=70% of the buffer budget, appends "OVER" at
+    // >=100%. Redrawn every 30 Hz tick with the rest of the view — no extra
+    // repaint. REMOVE with the processor's callback-timing block.
+    void drawCallbackLoad(juce::Graphics& g) {
+        namespace pl = lpng::palettelight;
+        const float last = cbLastPct.load(std::memory_order_relaxed);
+        const float peak = cbMaxPct.load(std::memory_order_relaxed);
+        juce::String txt = "cb " + juce::String(juce::roundToInt(last)) + "% | max " +
+                           juce::String(juce::roundToInt(peak)) + "%";
+        juce::uint32 tok = pl::textFaint;
+        if (peak >= 100.0f) {
+            tok = pl::accent;
+            txt += "  OVER";
+        } else if (peak >= 70.0f) {
+            tok = pl::accent;
+        }
+        g.setColour(pl::col(tok));
+        g.setFont(lpng::labelFont(lpng::metrics::kFontSmall));
+        g.drawText(txt, static_cast<int>(map.x) + 4, static_cast<int>(map.y + map.h) - 16,
+                   220, 14, juce::Justification::centredLeft);
+    }
+
     static constexpr int kInset = 6;
     static constexpr int kScratchCap = 1 << 15;
 
-    static inline const std::array<float, 8> kGridFreqs{100, 250, 500, 1000, 2000, 4000, 8000, 16000};
-    static inline const std::array<const char*, 8> kGridLabels{"100", "250", "500", "1k", "2k", "4k", "8k", "16k"};
+    static inline const std::array<float, 10> kGridFreqs{20, 50, 100, 250, 500, 1000, 2000, 4000, 8000, 16000};
+    static inline const std::array<const char*, 10> kGridLabels{"20", "50", "100", "250", "500", "1k", "2k", "4k", "8k", "16k"};
     static inline const std::array<float, 4> kDbMarks{0.0f, -30.0f, -60.0f, -90.0f};
     // Reduction-scale ticks (dB of cut), drawn near the baseline on the LEFT so
     // they never collide with the spectrum dBFS numerals on the right.
@@ -132,6 +202,12 @@ private:
 
     void timerCallback() override {
         engine.setSampleRate(readHostFs());
+        // Bypass wins over delta (same precedence as the audio, SpectralMix.h):
+        // while bypassed, force the normal spectrum view and suppress the
+        // ribbon below (rebuildPaths()) instead of showing a "live-looking"
+        // delta/reduction display over a transparent passthrough.
+        bypassActive = bypassParam.load() > 0.5f;
+        deltaMode = !bypassActive && (deltaParam.load() > 0.5f);
         const int n = fifo.read(scratchPtr, 2, kScratchCap);
 
         if (n > 0) {
@@ -164,8 +240,19 @@ private:
     }
 
     void rebuildPaths() {
-        buildSpectrum();
-        buildRibbon();
+        if (deltaMode) {
+            // Same reduction data as the ribbon, mirrored UP (dir = -1).
+            buildReductionShape(deltaLinePath, deltaFillPath, -1.0f);
+        } else {
+            buildSpectrum();
+            if (bypassActive) {
+                ribbonLinePath.clear();
+                ribbonFillPath.clear();
+            } else {
+                // Ribbon hangs DOWN from the baseline (dir = +1).
+                buildReductionShape(ribbonLinePath, ribbonFillPath, +1.0f);
+            }
+        }
     }
 
     // Resample the engine's per-bin dB into the per-point display array. Split
@@ -211,11 +298,16 @@ private:
         specFillPath.closeSubPath();
     }
 
-    void buildRibbon() {
-        ribbonLinePath.clear();
-        ribbonFillPath.clear();
-        // Ribbon hangs DOWN from the mid-well baseline; the cap bounds a
-        // full-scale cut to a legible depth that stays above spectrum territory.
+    // Builds the reduction shape from the node's published per-bin reduction:
+    // the ribbon (dir = +1, hanging DOWN from the mid-well baseline) and the
+    // delta-mode spike (dir = -1, mirrored UP from the SAME baseline) are the
+    // SAME curve on the SAME reduction scale, differing only in sign — so a
+    // given cut moves an identical number of pixels either way, by construction.
+    // The cap bounds a full-scale cut to a legible depth above spectrum
+    // territory (ribbon) or below the plot top (delta).
+    void buildReductionShape(juce::Path& linePath, juce::Path& fillPath, float dir) {
+        linePath.clear();
+        fillPath.clear();
         const float base = map.baselineY();
         const float ribbonBand = map.ribbonCapPx();
         const double fs = readHostFs();
@@ -238,17 +330,17 @@ private:
                        reductionDb[static_cast<std::size_t>(k0 + 1)] * t;
             }
             const float x = map.freqToX(f);
-            const float y = base + spectralui::DisplayMap::ribbonExtentPx(redv, ribbonBand);
+            const float y = base + dir * spectralui::DisplayMap::ribbonExtentPx(redv, ribbonBand);
             if (redv > 0.01f) any = true;
-            if (p == 0) { firstX = x; ribbonLinePath.startNewSubPath(x, y); }
-            else        { ribbonLinePath.lineTo(x, y); }
+            if (p == 0) { firstX = x; linePath.startNewSubPath(x, y); }
+            else        { linePath.lineTo(x, y); }
             lastX = x;
         }
-        if (!any) { ribbonLinePath.clear(); return; }  // nothing cut -> no ribbon
-        ribbonFillPath = ribbonLinePath;
-        ribbonFillPath.lineTo(lastX, base);
-        ribbonFillPath.lineTo(firstX, base);
-        ribbonFillPath.closeSubPath();
+        if (!any) { linePath.clear(); return; }  // nothing cut -> clean baseline
+        fillPath = linePath;
+        fillPath.lineTo(lastX, base);
+        fillPath.lineTo(firstX, base);
+        fillPath.closeSubPath();
     }
 
     void drawGrid(juce::Graphics& g) {
@@ -293,7 +385,8 @@ private:
         g.setColour(pl::col(pl::textMuted));
         for (std::size_t i = 0; i < kGridFreqs.size(); ++i) {
             const float x = map.freqToX(kGridFreqs[i]);
-            g.drawText(kGridLabels[i], static_cast<int>(x) - 16, static_cast<int>(map.y) + 2,
+            g.drawText(kGridLabels[i], juce::jmax(static_cast<int>(map.x), static_cast<int>(x) - 16),
+                       static_cast<int>(map.y) + 2,
                        32, 12, juce::Justification::centred);
         }
         // Spectrum level numerals on the right edge (faint — the analyzer's own
@@ -310,6 +403,13 @@ private:
     SpectrumFifo& fifo;
     ReductionPublisher<SpectralNode::kNumBins>& reduction;
     const std::atomic<double>& hostSampleRate;
+    const std::atomic<float>& deltaParam;
+    const std::atomic<float>& bypassParam;
+    // FIELD DIAGNOSTIC (temporary): processor callback-load atomics (relaxed reads).
+    const std::atomic<float>& cbLastPct;
+    const std::atomic<float>& cbMaxPct;
+    bool deltaMode = false;
+    bool bypassActive = false;
 
     spectralui::DisplayMap map;
     AnalyzerEngine engine;
@@ -323,6 +423,7 @@ private:
 
     juce::Path specLinePath, specFillPath;
     juce::Path ribbonLinePath, ribbonFillPath;
+    juce::Path deltaLinePath, deltaFillPath;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SpectralAnalyzerView)
 };

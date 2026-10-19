@@ -42,6 +42,11 @@ constexpr double kPi = 3.14159265358979323846;
 
 enum class Type { Bell = 0, LowShelf, HighShelf, Tilt, Notch, Bandpass, Lowpass, Highpass };
 
+/** Gain (dB) applies only to these four types; the rest are gain-less (freq/Q only). */
+inline constexpr bool isGainType(Type t) {
+    return t == Type::Bell || t == Type::LowShelf || t == Type::HighShelf || t == Type::Tilt;
+}
+
 /** Analog SVF-prototype recipe for one 2nd-order section. g is the section's
     OWN warped cutoff tan (already includes any shelf/tilt sqrt(A) shift), so
     downstream consumers must compute W(f) = tan(pi*f/fs) / g, never re-derive
@@ -124,9 +129,13 @@ inline CascadePlan planLowHighPassCascade(double slope, double q) {
     return plan;
 }
 
-/** Complex analog-prototype response of one 2nd-order section at frequency f. */
-inline std::complex<double> evalSection(const SectionRecipe& r, double fs, double f) {
-    const double W = std::tan(kPi * f / fs) / r.g;
+/** Complex analog-prototype response of one 2nd-order section, given the
+    PRECOMPUTED tangent tanPiFOverFs = tan(pi*f/fs). tan(pi*f/fs) is
+    band-independent and bin-static, so a multi-frequency sweep (e.g. a
+    per-bin weight table) hoists it out of the per-section loop and calls this.
+    W = tan(pi*f/fs) / g. */
+inline std::complex<double> evalSection(const SectionRecipe& r, double tanPiFOverFs) {
+    const double W = tanPiFOverFs / r.g;
     const std::complex<double> jW(0.0, W);
     const std::complex<double> D(1.0 - W * W, r.k * W);
     const std::complex<double> BP = jW / D;
@@ -134,15 +143,28 @@ inline std::complex<double> evalSection(const SectionRecipe& r, double fs, doubl
     return r.m0 + r.m1 * BP + r.m2 * LP;
 }
 
-/** Complex response of the odd-order 1st-order TPT section (low/high-pass
-    cascades only). g0 = tan(pi*f0/fs) is the UNWARPED cutoff tan (the 1-pole
-    section carries no shelf/tilt warp). */
-inline std::complex<double> evalOnePole(double f0, double fs, double f, bool highpass) {
-    const double g0 = std::tan(kPi * f0 / fs);
-    const double W = std::tan(kPi * f / fs) / g0;
+/** Complex analog-prototype response of one 2nd-order section at frequency f.
+    Delegates to the precomputed-tangent overload (bit-identical). */
+inline std::complex<double> evalSection(const SectionRecipe& r, double fs, double f) {
+    return evalSection(r, std::tan(kPi * f / fs));
+}
+
+/** Complex response of the odd-order 1st-order TPT section, given the section's
+    UNWARPED cutoff tangent g0 = tan(pi*f0/fs) and the PRECOMPUTED bin tangent
+    tanPiFOverFs = tan(pi*f/fs). W = tan(pi*f/fs) / g0. */
+inline std::complex<double> evalOnePole(double g0, double tanPiFOverFs, bool highpass) {
+    const double W = tanPiFOverFs / g0;
     const std::complex<double> jW(0.0, W);
     const std::complex<double> D = 1.0 + jW;
     return highpass ? (jW / D) : (1.0 / D);
+}
+
+/** Complex response of the odd-order 1st-order TPT section (low/high-pass
+    cascades only). g0 = tan(pi*f0/fs) is the UNWARPED cutoff tan (the 1-pole
+    section carries no shelf/tilt warp). Delegates to the precomputed-tangent
+    overload (bit-identical). */
+inline std::complex<double> evalOnePole(double f0, double fs, double f, bool highpass) {
+    return evalOnePole(std::tan(kPi * f0 / fs), std::tan(kPi * f / fs), highpass);
 }
 
 /** Full band response at a display frequency f, in dB. Mirrors

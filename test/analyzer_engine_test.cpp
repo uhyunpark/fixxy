@@ -15,7 +15,7 @@
 #include <random>
 #include <vector>
 
-#include "plugins/eq/ui/AnalyzerEngine.h"
+#include "plugins/ui/AnalyzerEngine.h"
 
 namespace {
 

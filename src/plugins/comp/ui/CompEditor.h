@@ -103,7 +103,7 @@ public:
         g.fillRect(header);
         g.setColour(palette::col(palette::textPrimary));
         g.setFont(headerFont());
-        g.drawText("LpngComp", header.reduced(2 * metrics::kSpacing, 0),
+        g.drawText(JucePlugin_Name, header.reduced(2 * metrics::kSpacing, 0),
                    juce::Justification::centredLeft);
         g.setColour(palette::col(palette::textMuted));
         g.setFont(labelFont(metrics::kFontSmall));

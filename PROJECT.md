@@ -30,6 +30,9 @@ LLM은 실시간으로 소리를 만들지 않는다. 실시간 DSP 엔진을 **
 
 ## 결정 사항
 
+- **현재 제품명**: 제조사 `fixxy`, 제품 `fixxy EQ`, `fixxy Comp`, `fixxy Spectral`.
+  기존 세션/프리셋 호환을 위해 bundle ID(`com.uhyun.*`), 제조사/플러그인 코드,
+  APVTS/state 식별자, `LpngSpectral` presetFormat과 `.lpngspectral` 확장자는 유지한다.
 - **스택**: JUCE + CMake/Ninja/Clang. Python(numpy/scipy/sounddevice)으로 DSP 선(先)프로토타이핑.
 - **메타 플러그인 접근**: 노드 그래프(A)로 MVP → Faust JIT(B) 하이브리드로 확장.
   - A: LLM이 코드가 아닌 **그래프 JSON** 생성. 스키마 검증 가능, 크래시 리스크 낮음. 표현력은 노드 라이브러리에 종속.

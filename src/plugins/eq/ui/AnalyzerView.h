@@ -7,9 +7,9 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
-#include "AnalyzerEngine.h"
+#include "plugins/ui/AnalyzerEngine.h"
 #include "CoordMap.h"
-#include "plugins/eq/SpectrumFifo.h"
+#include "plugins/ui/SpectrumFifo.h"
 
 /**
     Falling pre/post spectrum drawn BEHIND the response curve. Owns two

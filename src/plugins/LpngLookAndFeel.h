@@ -214,6 +214,17 @@ namespace palettelight {
     inline constexpr juce::uint32 reduceFill    = 0x6bff3e00;  // ribbon fill (ember @ 0.42)
 
     inline juce::Colour col(juce::uint32 argb) noexcept { return juce::Colour(argb); }
+
+    /** Per-band identity hue for the LIGHT family — 8 hues (LpngSpectral's
+        weight-curve bands, kMaxWeightBands) tuned for legibility on the cream/
+        white surfaces: lower value than the dark palette::bandColour()'s
+        HSV(i/n, 0.65, 0.95) so a hue like yellow doesn't wash out against
+        near-white. Same sanctioned exception as palette::bandColour() above —
+        a band's hue is its identity (dot handle, curve emphasis, On-toggle
+        tick); do not invent per-band colours anywhere else. */
+    inline juce::Colour bandColour(int index) noexcept {
+        return juce::Colour::fromHSV(static_cast<float>(index) / 8.0f, 0.72f, 0.72f, 1.0f);
+    }
 }  // namespace palettelight
 
 // -----------------------------------------------------------------------------

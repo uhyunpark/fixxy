@@ -275,9 +275,17 @@ void verifySpectralSchema() {
         {"release", 5.0, 1000.0, 50.0},
         {"mix", 0.0, 100.0, 100.0},
         {"output", -24.0, 12.0, 0.0},
+        // SIDEBAR globals (transcribed from PluginProcessor.cpp).
+        {"maxCut", 1.0, 24.0, 24.0},
+        {"wetTrim", -12.0, 12.0, 0.0},
+        {"linkPct", 0.0, 100.0, 100.0},
+        {"focus", -1.0, 1.0, 0.0},
+        {"tiltDetail", -1.0, 1.0, 0.0},
+        {"tiltAttack", -1.0, 1.0, 0.0},
+        {"tiltRelease", -1.0, 1.0, 0.0},
     };
 
-    check("spectral", "schema has exactly 8 params", schema.size() == 8,
+    check("spectral", "schema has exactly 61 params", schema.size() == 61,
           ("count=" + std::to_string(schema.size())).c_str());
 
     for (const auto& e : expected) {
@@ -295,9 +303,10 @@ void verifySpectralSchema() {
               "vs APVTS layout");
     }
 
-    // Bool params (bypass, delta) added for the Stage-5 editor. Transcribed
-    // independently from PluginProcessor.cpp: both AudioParameterBool default false.
-    for (const char* id : {"bypass", "delta"}) {
+    // Bool params (bypass, delta) added for the Stage-5 editor plus msMode from
+    // the sidebar. Transcribed independently from PluginProcessor.cpp: all
+    // AudioParameterBool default false.
+    for (const char* id : {"bypass", "delta", "msMode", "externalSidechain", "sidechainListen"}) {
         const auto* d = find(schema, id);
         std::string tag = std::string("spectral.") + id;
         if (d == nullptr) {
@@ -310,6 +319,72 @@ void verifySpectralSchema() {
               "vs APVTS layout (default false)");
     }
 
+    // --- Weight curve bands (v1 plumbing; transcribed independently from
+    // src/plugins/spectral/PluginProcessor.cpp::createParameterLayout()) ---
+    const std::array<double, 8> expectedWbandFreqs{120, 250, 500, 1000, 2000, 4000, 8000, 12000};
+    const std::array<std::string, 8> expectedWbandTypeChoices{
+        "bell", "low shelf", "high shelf", "tilt", "notch", "bandpass", "lowpass", "highpass"};
+
+    for (int i = 0; i < 8; ++i) {
+        const std::string idx = std::to_string(i);
+
+        const auto* on = find(schema, "wband" + idx + "On");
+        check("spectral", ("wband" + idx + ".On is bool, default off").c_str(),
+              on && on->type == paramschema::ParamType::Bool && nearlyEqual(on->defaultVal, 0.0),
+              "vs APVTS layout");
+
+        const auto* type = find(schema, "wband" + idx + "Type");
+        bool typeOk = type != nullptr && type->type == paramschema::ParamType::Choice &&
+                      type->choices.size() == 8 && nearlyEqual(type->defaultVal, 0.0);
+        if (typeOk)
+            for (int c = 0; c < 8; ++c)
+                typeOk &= (type->choices[static_cast<std::size_t>(c)] ==
+                           expectedWbandTypeChoices[static_cast<std::size_t>(c)]);
+        check("spectral", ("wband" + idx + ".Type choices == svfcoeffs::Type order").c_str(),
+              typeOk, "vs APVTS layout");
+
+        const auto* freq = find(schema, "wband" + idx + "Freq");
+        check("spectral", ("wband" + idx + ".Freq range/default").c_str(),
+              freq && nearlyEqual(freq->min, 20.0) && nearlyEqual(freq->max, 20000.0) &&
+                  nearlyEqual(freq->defaultVal, expectedWbandFreqs[static_cast<std::size_t>(i)]),
+              "vs APVTS layout");
+
+        const auto* gain = find(schema, "wband" + idx + "Gain");
+        check("spectral", ("wband" + idx + ".Gain range/default").c_str(),
+              gain && nearlyEqual(gain->min, -24.0) && nearlyEqual(gain->max, 24.0) &&
+                  nearlyEqual(gain->defaultVal, 0.0),
+              "vs APVTS layout");
+
+        const auto* q = find(schema, "wband" + idx + "Q");
+        check("spectral", ("wband" + idx + ".Q range/default").c_str(),
+              q && nearlyEqual(q->min, 0.3) && nearlyEqual(q->max, 12.0) &&
+                  nearlyEqual(q->defaultVal, 0.7),
+              "vs APVTS layout");
+    }
+
+    const auto* rangeLo = find(schema, "rangeLo");
+    check("spectral", "rangeLo range/default",
+          rangeLo && nearlyEqual(rangeLo->min, 20.0) && nearlyEqual(rangeLo->max, 20000.0) &&
+              nearlyEqual(rangeLo->defaultVal, 20.0),
+          "vs APVTS layout");
+
+    const auto* rangeHi = find(schema, "rangeHi");
+    check("spectral", "rangeHi range/default",
+          rangeHi && nearlyEqual(rangeHi->min, 20.0) && nearlyEqual(rangeHi->max, 20000.0) &&
+              nearlyEqual(rangeHi->defaultVal, 20000.0),
+          "vs APVTS layout");
+
+    const auto* detectionMode = find(schema, "detectionMode");
+    check("spectral", "detectionMode retains its original index; sidechain IDs append",
+          detectionMode != nullptr && schema.size() == 61 && schema[58].id == "detectionMode"
+              && schema[59].id == "externalSidechain" && schema[60].id == "sidechainListen",
+          "existing parameter ordering must not change");
+    check("spectral", "detectionMode choice contract",
+          detectionMode != nullptr && detectionMode->type == paramschema::ParamType::Choice
+              && nearlyEqual(detectionMode->defaultVal, 0.0)
+              && detectionMode->choices == std::vector<std::string>{"soft", "hard"},
+          "Soft=0, Hard=1");
+
     // Cross-check against SpectralNode::Params defaults directly.
     const SpectralNode::Params defaults{};
     check("spectral", "node depth default matches schema",
@@ -320,6 +395,24 @@ void verifySpectralSchema() {
           nearlyEqual(find(schema, "attack")->defaultVal, defaults.attackMs), "");
     check("spectral", "node release default matches schema",
           nearlyEqual(find(schema, "release")->defaultVal, defaults.releaseMs), "");
+    // Sidebar node-default cross-checks — schema defaults MUST equal the node's
+    // (proto-proven exact-no-op) Params defaults.
+    check("spectral", "node maxCut default matches schema",
+          nearlyEqual(find(schema, "maxCut")->defaultVal, defaults.maxCutDb), "");
+    check("spectral", "node wetTrim default matches schema",
+          nearlyEqual(find(schema, "wetTrim")->defaultVal, defaults.wetTrimDb), "");
+    check("spectral", "node msMode default matches schema",
+          nearlyEqual(find(schema, "msMode")->defaultVal, defaults.msMode ? 1.0 : 0.0), "");
+    check("spectral", "node linkPct default matches schema",
+          nearlyEqual(find(schema, "linkPct")->defaultVal, defaults.linkPct), "");
+    check("spectral", "node focus default matches schema",
+          nearlyEqual(find(schema, "focus")->defaultVal, defaults.focus), "");
+    check("spectral", "node tiltDetail default matches schema",
+          nearlyEqual(find(schema, "tiltDetail")->defaultVal, defaults.tiltDetail), "");
+    check("spectral", "node tiltAttack default matches schema",
+          nearlyEqual(find(schema, "tiltAttack")->defaultVal, defaults.tiltAttack), "");
+    check("spectral", "node tiltRelease default matches schema",
+          nearlyEqual(find(schema, "tiltRelease")->defaultVal, defaults.tiltRelease), "");
 }
 
 }  // namespace
